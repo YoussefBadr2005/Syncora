@@ -603,6 +603,56 @@ export default function TaskDetailPage() {
             </div>
           )}
 
+          {/* Activity Feed */}
+          {activity.length > 0 && (
+            <div className="bg-white rounded-2xl shadow-sm p-6" style={{ border: "1px solid #E4E9F0" }}>
+              <h2 className="text-sm font-bold mb-5" style={{ color: C.primary }}>
+                Recent Activity
+                <span className="ml-2 text-xs font-normal" style={{ color: C.neutral }}>({activity.length})</span>
+              </h2>
+              <div className="space-y-4">
+                {activity.slice().reverse().map((log, idx) => {
+                  const actor = displayName(log.userId || "");
+                  const timestamp = formatDateTime(log.createdAt);
+                  let message = "";
+                  let icon = null;
+                  
+                  if (log.type === "TASK_CREATED") {
+                    message = "Task created";
+                    icon = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14m-7-7h14"/></svg>;
+                  } else if (log.type === "STATUS_CHANGED") {
+                    message = `Status changed to ${(log.payload?.toStatus as string | undefined) || "unknown"}`;
+                    icon = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg>;
+                  } else if (log.type === "TASK_ASSIGNED") {
+                    message = `Assigned to ${displayName((log.payload?.assigneeId as string | undefined) || "")}`;
+                    icon = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
+                  } else if (log.type === "COMMENT_ADDED") {
+                    message = "Comment added";
+                    icon = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>;
+                  } else {
+                    message = log.type || "Activity recorded";
+                    icon = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="1"/></svg>;
+                  }
+
+                  return (
+                    <div key={idx} className="flex gap-3 pb-3" style={{ borderBottom: "1px solid #E8ECF0" }}>
+                      <div className="flex-shrink-0 pt-1" style={{ color: C.accent }}>
+                        {icon}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold" style={{ color: C.primary }}>
+                          {actor}
+                          <span className="font-normal" style={{ color: C.neutral + "99" }}> {message}</span>
+                        </p>
+                        <p className="text-xs" style={{ color: C.neutral }}>{timestamp}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
         </div>
       </div>
     </ProtectedLayout>

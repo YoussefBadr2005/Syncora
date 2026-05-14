@@ -72,4 +72,23 @@ router.post(
   })
 );
 
+// GET /teams/:id/members — get all members of a team with full user details
+router.get(
+  "/:id/members",
+  requireRole("manager", "admin"),
+  asyncHandler(async (req, res) => {
+    const { Item } = await ddb.send(
+      new GetCommand({ TableName: config.tables.teams, Key: { teamId: req.params.id } })
+    );
+    if (!Item) throw new HttpError(404, "Team not found");
+
+    // Get all users
+    const { Items: users } = await ddb.send(new ScanCommand({ TableName: config.tables.users }));
+    const teamMembers = (users ?? []).filter(
+      (u: any) => u.teamId === req.params.id && !u.deletedAt
+    );
+    res.json(teamMembers);
+  })
+);
+
 export default router;

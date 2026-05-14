@@ -8,17 +8,29 @@ const router = Router();
 
 router.get(
   "/",
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
+    const { taskId, limit } = req.query as { taskId?: string; limit?: string };
     const { Items } = await ddb.send(
       new ScanCommand({
         TableName: config.tables.activityLogs,
-        Limit: 50,
+        Limit: 100,
       })
     );
-    const sorted = (Items ?? []).sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    let results = Items ?? [];
+
+    // Filter by taskId if provided
+    if (taskId) {
+      results = results.filter((a: any) => a.taskId === taskId);
+    }
+
+    // Sort descending by timestamp
+    const sorted = results.sort(
+      (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
-    res.json(sorted.slice(0, 20));
+
+    // Limit results (default 20, max 100)
+    const limitNum = Math.min(parseInt(limit ?? "20", 10), 100);
+    res.json(sorted.slice(0, limitNum));
   })
 );
 

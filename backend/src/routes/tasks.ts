@@ -14,7 +14,7 @@ import { requireRole } from "../middleware/auth";
 import { assertTeamMatches } from "../middleware/teamGuard";
 import { asyncHandler, HttpError } from "../middleware/error";
 import { Task, TaskPriority, TaskStatus, TASK_PRIORITIES, TASK_STATUSES } from "../types";
-import { recordStatusChange } from "../services/statusLog";
+import { recordStatusChange, recordActivity } from "../services/statusLog";
 import { publishTaskAssignment, emitMetric } from "../services/notifications";
 
 const router = Router();
@@ -77,6 +77,12 @@ router.post(
         assigneeId: task.assigneeId,
         teamId: task.teamId,
         assignedBy: req.user!.sub,
+      }),
+      recordActivity({
+        taskId: task.taskId,
+        userId: req.user!.sub,
+        type: "TASK_CREATED",
+        payload: { title: task.title },
       }),
       emitMetric("TasksCreated", 1, { TeamId: task.teamId }),
     ]);
@@ -198,29 +204,85 @@ router.put(
 
     const updated = Attributes as Task;
 
-    if (body.status && body.status !== task.status) {
-      await recordStatusChange({
-        taskId: task.taskId,
-        fromStatus: task.status,
-        toStatus: updated.status,
-        changedBy: user.sub,
-      });
-      if (updated.status === "Done") {
-        await emitMetric("TasksClosed", 1, { TeamId: updated.teamId });
-      }
-    }
-
-    if (isManager && body.assigneeId && body.assigneeId !== task.assigneeId) {
-      await publishTaskAssignment({
-        taskId: updated.taskId,
-        taskTitle: updated.title,
-        assigneeId: updated.assigneeId,
-        teamId: updated.teamId,
-        assignedBy: user.sub,
-      });
-    }
+    await Promise.allSettled([
+      (async () => {
+        if (body.status && body.status !== task.status) {
+          await recordStatusChange({
+            taskId: task.taskId,
+            fromStatus: task.status,
+            toStatus: updated.status,
+            changedBy: user.sub,
+          });
+          await recordActivity({
+            taskId: task.taskId,
+            userId: user.sub,
+            type: "STATUS_CHANGED",
+            payload: { fromStatus: task.status, toStatus: updated.status },
+          });
+          if (updated.status === "Done") {
+            await emitMetric("TasksClosed", 1, { TeamId: updated.teamId });
+          }
+        }
+      })(),
+      (async () => {
+        if (isManager && body.assigneeId && body.assigneeId !== task.assigneeId) {
+          await publishTaskAssignment({
+            taskId: updated.taskId,
+            taskTitle: updated.title,
+            assigneeId: updated.assigneeId,
+            teamId: updated.teamId,
+            assignedBy: user.sub,
+          });
+          await recordActivity({
+            taskId: updated.taskId,
+            userId: user.sub,
+            type: "TASK_ASSIGNED",
+            payload: { assigneeId: updated.assigneeId },
+          });
+        }
+      })(),
+    ]);
 
     res.json(updated);
+  })
+);
+
+// GET /tasks/digest/today — fetch tasks due today, grouped by assignee
+router.get(
+  "/digest/today",
+  asyncHandler(async (req, res) => {
+    const user = req.user!;
+    const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+
+    // Scan all tasks
+    const { Items } = await ddb.send(new ScanCommand({ TableName: config.tables.tasks }));
+    const tasks = Items ?? [];
+
+    // Filter by deadline = today
+    const todayTasks = tasks.filter((t: Record<string, any>) => {
+      const taskDate = (t.deadline ?? "").split("T")[0];
+      return taskDate === today;
+    });
+
+    // Apply team access control
+    const filtered = todayTasks.filter((t: Record<string, any>) => {
+      if (user.role === "manager" || user.role === "admin") return true;
+      return t.teamId === user.teamId;
+    });
+
+    // Group by assigneeId
+    const grouped = filtered.reduce((acc: Record<string, any[]>, task: any) => {
+      const key = task.assigneeId || "unassigned";
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(task);
+      return acc;
+    }, {});
+
+    res.json({
+      date: today,
+      total: filtered.length,
+      byAssignee: grouped,
+    });
   })
 );
 

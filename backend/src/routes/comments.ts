@@ -6,6 +6,7 @@ import { config } from "../config";
 import { asyncHandler, HttpError } from "../middleware/error";
 import { assertTeamMatches } from "../middleware/teamGuard";
 import { getTaskById } from "./tasks";
+import { recordActivity } from "../services/statusLog";
 import { Comment } from "../types";
 
 const router = Router({ mergeParams: true });
@@ -28,6 +29,15 @@ router.post(
       createdAt: new Date().toISOString(),
     };
     await ddb.send(new PutCommand({ TableName: config.tables.comments, Item: comment }));
+    
+    // Log activity for comment
+    await recordActivity({
+      taskId: task.taskId,
+      userId: req.user!.sub,
+      type: "COMMENT_ADDED",
+      payload: { commentId: comment.commentId, preview: body.slice(0, 50) },
+    }).catch(() => null); // Ignore activity logging errors
+    
     res.status(201).json(comment);
   })
 );

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import ProtectedLayout from "@/components/layout/ProtectedLayout";
 import { useAuth } from "@/hooks/useAuth";
 import api from "@/lib/api";
-import type { Task, Team, User, Project } from "@/types";
+import type { Task, Team, User, Project, TaskStatus } from "@/types";
 import Link from "next/link";
 
 // ─── Palette (4 colors only) ──────────────────────────────────────────────────
@@ -31,7 +31,7 @@ const PRIORITY_COLOR: Record<string, string> = {
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-function normalizeStatus(s: string) {
+function formatStatus(s: TaskStatus): string {
   if (s === "Todo")       return "To Do";
   if (s === "InProgress") return "In Progress";
   if (s === "InReview")   return "In Review";
@@ -39,7 +39,7 @@ function normalizeStatus(s: string) {
 }
 
 function isOverdue(task: Task) {
-  return task.deadline && normalizeStatus(task.status) !== "Done" && new Date(task.deadline) < new Date();
+  return task.deadline && task.status !== "Done" && new Date(task.deadline) < new Date();
 }
 
 function timeAgo(iso: string) {
@@ -140,10 +140,10 @@ function ManagerDashboard({ tasks, teams, users, projects, activity }: {
   };
 
   const kanbanCols = [
-    { label: "To Do",       color: C.neutral, tasks: tasks.filter(t => t.status === "To Do") },
-    { label: "In Progress", color: C.blue,    tasks: tasks.filter(t => t.status === "In Progress") },
-    { label: "In Review",   color: C.accent,  tasks: tasks.filter(t => t.status === "In Review") },
-    { label: "Done",        color: C.primary, tasks: tasks.filter(t => t.status === "Done") },
+    { label: "To Do",       color: C.neutral, status: "Todo" as const, tasks: tasks.filter(t => t.status === "Todo") },
+    { label: "In Progress", color: C.blue,    status: "InProgress" as const, tasks: tasks.filter(t => t.status === "InProgress") },
+    { label: "In Review",   color: C.accent,  status: "InReview" as const, tasks: tasks.filter(t => t.status === "InReview") },
+    { label: "Done",        color: C.primary, status: "Done" as const, tasks: tasks.filter(t => t.status === "Done") },
   ];
 
   const statCards = [
@@ -223,7 +223,7 @@ function ManagerDashboard({ tasks, teams, users, projects, activity }: {
               View all →
             </Link>
           </div>
-          <div className="bg-white divide-y" style={{ divideColor: "#F8FAFC" }}>
+          <div className="bg-white divide-y" style={{ borderColor: "#F8FAFC" }}>
             {overdue.slice(0, 3).map(t => (
               <Link key={t.taskId} href={`/tasks/${t.taskId}`}
                 className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors">
@@ -471,7 +471,7 @@ function EmployeeDashboard({ tasks, projects, activity, userId, userName: displa
   const myOverdue = myTasks.filter(t => isOverdue(t));
   const today     = new Date().toISOString().split("T")[0];
   const dueToday  = myActive.filter(t => t.deadline?.startsWith(today));
-  const inReview  = myTasks.filter(t => t.status === "In Review");
+  const inReview  = myTasks.filter(t => t.status === "InReview");
   const completed = myTasks.filter(t => t.status === "Done");
 
   const dueSoon = myActive
@@ -481,10 +481,10 @@ function EmployeeDashboard({ tasks, projects, activity, userId, userName: displa
 
   // All team tasks (matches Tasks page), with "mine" highlighted
   const kanbanCols = [
-    { label: "To Do",       color: C.neutral, tasks: tasks.filter(t => t.status === "To Do") },
-    { label: "In Progress", color: C.blue,    tasks: tasks.filter(t => t.status === "In Progress") },
-    { label: "In Review",   color: C.accent,  tasks: tasks.filter(t => t.status === "In Review") },
-    { label: "Done",        color: C.primary, tasks: tasks.filter(t => t.status === "Done") },
+    { label: "To Do",       color: C.neutral, status: "Todo" as const, tasks: tasks.filter(t => t.status === "Todo") },
+    { label: "In Progress", color: C.blue,    status: "InProgress" as const, tasks: tasks.filter(t => t.status === "InProgress") },
+    { label: "In Review",   color: C.accent,  status: "InReview" as const, tasks: tasks.filter(t => t.status === "InReview") },
+    { label: "Done",        color: C.primary, status: "Done" as const, tasks: tasks.filter(t => t.status === "Done") },
   ];
 
   const projectMap = Object.fromEntries(projects.map(p => [p.projectId, p.name]));
@@ -758,9 +758,9 @@ function EmployeeDashboard({ tasks, projects, activity, userId, userName: displa
           <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: C.neutral }}>By Status</p>
           <div className="space-y-2.5 mb-5">
             {[
-              { label: "To Do",       color: C.neutral, count: myTasks.filter(t => t.status === "To Do").length       },
-              { label: "In Progress", color: C.blue,    count: myTasks.filter(t => t.status === "In Progress").length },
-              { label: "In Review",   color: C.accent,  count: myTasks.filter(t => t.status === "In Review").length   },
+              { label: "To Do",       color: C.neutral, count: myTasks.filter(t => t.status === "Todo").length       },
+              { label: "In Progress", color: C.blue,    count: myTasks.filter(t => t.status === "InProgress").length },
+              { label: "In Review",   color: C.accent,  count: myTasks.filter(t => t.status === "InReview").length   },
               { label: "Done",        color: C.primary, count: myTasks.filter(t => t.status === "Done").length        },
             ].map(({ label, color, count }) => (
               <div key={label} className="flex items-center gap-2.5">
@@ -805,15 +805,32 @@ export default function DashboardPage() {
     if (!user) return;
     const isManager = user.role === "manager";
     Promise.all([
-      api.get("/tasks").then(r => r.data as Task[]),
-      api.get("/projects").then(r => r.data as Project[]),
-      isManager ? api.get("/teams").then(r => r.data as Team[]) : Promise.resolve([] as Team[]),
-      isManager ? api.get("/users").then(r => r.data as User[]) : Promise.resolve([] as User[]),
-      api.get("/activity").then(r => r.data).catch(() => []),
+      api.get("/tasks").then(r => r.data as Task[]).catch(err => {
+        console.error("[DEBUG] Failed to fetch tasks:", err?.response?.status, err?.message);
+        return [] as Task[];
+      }),
+      api.get("/projects").then(r => r.data as Project[]).catch(err => {
+        console.error("[DEBUG] Failed to fetch projects:", err?.response?.status, err?.message);
+        return [] as Project[];
+      }),
+      isManager ? api.get("/teams").then(r => r.data as Team[]).catch(err => {
+        console.error("[DEBUG] Failed to fetch teams:", err?.response?.status, err?.message);
+        return [] as Team[];
+      }) : Promise.resolve([] as Team[]),
+      isManager ? api.get("/users").then(r => r.data as User[]).catch(err => {
+        console.error("[DEBUG] Failed to fetch users:", err?.response?.status, err?.message);
+        return [] as User[];
+      }) : Promise.resolve([] as User[]),
+      api.get("/activity").then(r => r.data).catch(err => {
+        console.error("[DEBUG] Failed to fetch activity:", err?.response?.status, err?.message);
+        return [];
+      }),
     ]).then(([t, p, tm, u, a]) => {
-      setTasks((t as Task[]).map(task => ({ ...task, status: normalizeStatus(task.status) as Task["status"] })));
+      setTasks(t as Task[]);
       setProjects(p); setTeams(tm); setUsers(u);
       setActivity(Array.isArray(a) ? a : []);
+    }).catch(err => {
+      console.error("[DEBUG] Dashboard loading failed:", err);
     }).finally(() => setLoading(false));
   }, [user]);
 
