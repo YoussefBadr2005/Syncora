@@ -4,6 +4,7 @@ backend/.env
 frontend/.env.local
 frontend/my-app/.env.local
 *.env.local
+iam-credentials-*.env
 
 # Dependencies
 node_modules/

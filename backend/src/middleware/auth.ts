@@ -5,7 +5,7 @@ import { Role } from "../types";
 
 const verifier = CognitoJwtVerifier.create({
   userPoolId: config.cognito.userPoolId,
-  tokenUse: "access",
+  tokenUse: "id",
   clientId: config.cognito.clientId,
 });
 

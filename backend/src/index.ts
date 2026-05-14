@@ -10,6 +10,7 @@ import commentsRouter from "./routes/comments";
 import imagesRouter from "./routes/images";
 import teamsRouter from "./routes/teams";
 import usersRouter from "./routes/users";
+import activityRouter from "./routes/activity";
 
 const app = express();
 
@@ -26,6 +27,7 @@ app.use("/api/tasks", commentsRouter);
 app.use("/api/tasks", imagesRouter);
 app.use("/api/teams", teamsRouter);
 app.use("/api/users", usersRouter);
+app.use("/api/activity", activityRouter);
 
 app.use(notFound);
 app.use(errorHandler);
