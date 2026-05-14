@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { signIn, signOut, getIdToken, parseTokenPayload } from "@/lib/auth";
 import type { User, Role } from "@/types";
 
@@ -26,12 +26,16 @@ function userFromToken(token: string): User {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(() => {
-    if (typeof window === "undefined") return null;
+  const [user, setUser]           = useState<User | null>(null);
+  const [initializing, setInit]   = useState(true);
+  const [loading, setLoading]     = useState(false);
+
+  // Resolve token client-side only — avoids server/client HTML mismatch
+  useEffect(() => {
     const token = getIdToken();
-    return token ? userFromToken(token) : null;
-  });
-  const [loading, setLoading] = useState(false);
+    if (token) setUser(userFromToken(token));
+    setInit(false);
+  }, []);
 
   const login = async (email: string, password: string) => {
     await signIn(email, password);
@@ -47,7 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user,
-      loading,
+      loading: initializing || loading,
       login,
       logout,
       isManager: user?.role === "manager",

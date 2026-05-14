@@ -7,10 +7,12 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "nodemon --watch src --ext ts --exec ts-node src/index.ts",
+    "seed": "ts-node --transpile-only seed.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@aws-sdk/client-cloudwatch": "^3.658.0",
+    "@aws-sdk/client-cognito-identity-provider": "^3.1046.0",
     "@aws-sdk/client-dynamodb": "^3.658.0",
     "@aws-sdk/client-s3": "^3.658.0",
     "@aws-sdk/client-sns": "^3.658.0",
