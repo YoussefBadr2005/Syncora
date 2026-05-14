@@ -11,6 +11,14 @@ export interface AuthUser {
   email?: string;
   role: Role;
   teamId: string;
+  orgId: string;
+}
+
+export interface Organization {
+  orgId: string;
+  name: string;
+  ownerUserId: string;
+  createdAt: string;
 }
 
 export interface Project {
@@ -18,6 +26,7 @@ export interface Project {
   name: string;
   description: string;
   teamId: string;
+  orgId: string;
   createdBy: string;
   createdAt: string;
 }
@@ -32,6 +41,7 @@ export interface Task {
   deadline: string;
   assigneeId: string;
   teamId: string;
+  orgId: string;
   imageKey?: string;
   thumbnailKey?: string;
   createdBy: string;
@@ -44,6 +54,7 @@ export interface Comment {
   taskId: string;
   authorId: string;
   body: string;
+  orgId: string;
   createdAt: string;
 }
 

@@ -4,6 +4,7 @@ import { ddb } from "../aws";
 import { config } from "../config";
 import { asyncHandler, HttpError } from "../middleware/error";
 import { assertTeamMatches } from "../middleware/teamGuard";
+import { assertSameOrg } from "../middleware/orgGuard";
 import { requireRole } from "../middleware/auth";
 import { getTaskById } from "./tasks";
 import { getUploadUrl, getDownloadUrl, deleteObject } from "../services/images";
@@ -14,7 +15,7 @@ router.post(
   "/:id/image",
   asyncHandler(async (req, res) => {
     const task = await getTaskById(req.params.id);
-    if (!task) throw new HttpError(404, "Task not found");
+    if (!task || !assertSameOrg(req, task.orgId)) throw new HttpError(404, "Task not found");
     if (!assertTeamMatches(req, task.teamId)) throw new HttpError(403, "Forbidden");
 
     const { filename, contentType } = req.body ?? {};
@@ -43,7 +44,7 @@ router.get(
   "/:id/image-url",
   asyncHandler(async (req, res) => {
     const task = await getTaskById(req.params.id);
-    if (!task) throw new HttpError(404, "Task not found");
+    if (!task || !assertSameOrg(req, task.orgId)) throw new HttpError(404, "Task not found");
     if (!assertTeamMatches(req, task.teamId)) throw new HttpError(403, "Forbidden");
 
     const which = (req.query.variant as string) === "original" ? "original" : "thumbnail";
@@ -61,7 +62,7 @@ router.delete(
   requireRole("manager", "admin"),
   asyncHandler(async (req, res) => {
     const task = await getTaskById(req.params.id);
-    if (!task) throw new HttpError(404, "Task not found");
+    if (!task || !assertSameOrg(req, task.orgId)) throw new HttpError(404, "Task not found");
 
     if (task.imageKey) {
       await deleteObject(config.s3.originalsBucket, task.imageKey).catch(() => undefined);

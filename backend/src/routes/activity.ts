@@ -8,14 +8,15 @@ const router = Router();
 
 router.get(
   "/",
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
     const { Items } = await ddb.send(
       new ScanCommand({
         TableName: config.tables.activityLogs,
-        Limit: 50,
+        Limit: 200,
       })
     );
-    const sorted = (Items ?? []).sort(
+    const scoped = (Items ?? []).filter((it) => it.orgId === req.user!.orgId);
+    const sorted = scoped.sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
     res.json(sorted.slice(0, 20));

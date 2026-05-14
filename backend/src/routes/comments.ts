@@ -5,6 +5,7 @@ import { ddb } from "../aws";
 import { config } from "../config";
 import { asyncHandler, HttpError } from "../middleware/error";
 import { assertTeamMatches } from "../middleware/teamGuard";
+import { assertSameOrg } from "../middleware/orgGuard";
 import { getTaskById } from "./tasks";
 import { Comment } from "../types";
 
@@ -14,7 +15,7 @@ router.post(
   "/:id/comments",
   asyncHandler(async (req, res) => {
     const task = await getTaskById(req.params.id);
-    if (!task) throw new HttpError(404, "Task not found");
+    if (!task || !assertSameOrg(req, task.orgId)) throw new HttpError(404, "Task not found");
     if (!assertTeamMatches(req, task.teamId)) throw new HttpError(403, "Forbidden");
 
     const { body } = req.body ?? {};
@@ -25,6 +26,7 @@ router.post(
       taskId: task.taskId,
       authorId: req.user!.sub,
       body,
+      orgId: req.user!.orgId,
       createdAt: new Date().toISOString(),
     };
     await ddb.send(new PutCommand({ TableName: config.tables.comments, Item: comment }));
@@ -36,7 +38,7 @@ router.get(
   "/:id/comments",
   asyncHandler(async (req, res) => {
     const task = await getTaskById(req.params.id);
-    if (!task) throw new HttpError(404, "Task not found");
+    if (!task || !assertSameOrg(req, task.orgId)) throw new HttpError(404, "Task not found");
     if (!assertTeamMatches(req, task.teamId)) throw new HttpError(403, "Forbidden");
 
     const { Items } = await ddb.send(

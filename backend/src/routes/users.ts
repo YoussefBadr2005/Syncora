@@ -4,7 +4,7 @@ import {
   AdminSetUserPasswordCommand,
   AdminUpdateUserAttributesCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
-import { GetCommand, PutCommand, ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { ddb, cognito } from "../aws";
 import { config } from "../config";
 import { requireRole } from "../middleware/auth";
@@ -25,33 +25,59 @@ router.get(
         email:  req.user!.email,
         role:   req.user!.role,
         teamId: req.user!.teamId,
+        orgId:  req.user!.orgId,
       }
     );
   })
 );
 
-// GET /users  (manager only)
+// GET /users  (admin/manager only) — scoped to caller's org
 router.get(
   "/",
   requireRole("manager", "admin"),
-  asyncHandler(async (_req, res) => {
-    const { Items } = await ddb.send(new ScanCommand({ TableName: config.tables.users }));
+  asyncHandler(async (req, res) => {
+    const { Items } = await ddb.send(
+      new QueryCommand({
+        TableName: config.tables.users,
+        IndexName: config.indexes.usersOrg,
+        KeyConditionExpression: "orgId = :o",
+        ExpressionAttributeValues: { ":o": req.user!.orgId },
+      })
+    );
     res.json(Items ?? []);
   })
 );
 
-// POST /users — creates Cognito account + DynamoDB profile in one step
+// POST /users — creates Cognito account + DynamoDB profile in caller's org.
+// Admin can create managers or employees. Manager can create employees only.
 router.post(
   "/",
   requireRole("manager", "admin"),
   asyncHandler(async (req, res) => {
     const { name, email, password, role, teamId } = req.body ?? {};
+    const caller = req.user!;
 
     if (!email || !role) throw new HttpError(400, "email and role are required");
-    if (!["manager", "employee"].includes(role)) throw new HttpError(400, "Invalid role");
-    if (role === "employee" && !teamId) throw new HttpError(400, "teamId is required for employees");
+    if (!["manager", "employee"].includes(role)) {
+      throw new HttpError(400, "Invalid role (must be manager or employee)");
+    }
+    if (caller.role === "manager" && role !== "employee") {
+      throw new HttpError(403, "Managers can only create employees");
+    }
+    if (role === "employee" && !teamId) {
+      throw new HttpError(400, "teamId is required for employees");
+    }
 
-    // ── 1. Create Cognito user ──────────────────────────────────────────────
+    // Verify the team belongs to the caller's org.
+    if (teamId) {
+      const { Item: team } = await ddb.send(
+        new GetCommand({ TableName: config.tables.teams, Key: { teamId } })
+      );
+      if (!team || team.orgId !== caller.orgId) {
+        throw new HttpError(404, "Team not found");
+      }
+    }
+
     let cognitoSub: string;
     try {
       const createRes = await cognito.send(
@@ -59,13 +85,14 @@ router.post(
           UserPoolId: config.cognito.userPoolId,
           Username: email,
           TemporaryPassword: password || "Syncora@2026!",
-          MessageAction: "SUPPRESS", // don't send AWS welcome email (we handle this)
+          MessageAction: "SUPPRESS",
           UserAttributes: [
             { Name: "email",            Value: email },
             { Name: "email_verified",   Value: "true" },
             { Name: "name",             Value: name ?? email.split("@")[0] },
             { Name: "custom:role",      Value: role },
             { Name: "custom:teamId",    Value: role === "employee" ? (teamId ?? "") : "" },
+            { Name: "custom:orgId",     Value: caller.orgId },
           ],
         })
       );
@@ -74,7 +101,6 @@ router.post(
       if (!sub) throw new Error("Cognito did not return a sub");
       cognitoSub = sub;
 
-      // Set permanent password so user doesn't need to change it on first login
       if (password) {
         await cognito.send(
           new AdminSetUserPasswordCommand({
@@ -93,13 +119,13 @@ router.post(
       throw new HttpError(500, `Cognito error: ${cogErr.message ?? "unknown"}`);
     }
 
-    // ── 2. Write DynamoDB profile using the Cognito sub as userId ───────────
     const item = {
       userId:    cognitoSub,
       email,
       name:      name ?? email.split("@")[0],
       role,
       teamId:    role === "employee" ? (teamId ?? "") : "",
+      orgId:     caller.orgId,
       createdAt: new Date().toISOString(),
     };
     await ddb.send(new PutCommand({ TableName: config.tables.users, Item: item }));
@@ -108,15 +134,45 @@ router.post(
   })
 );
 
-// PUT /users/:id — update team/role in both DynamoDB and Cognito
+// PUT /users/:id — admin/manager can update profile within their org.
 router.put(
   "/:id",
   requireRole("manager", "admin"),
   asyncHandler(async (req, res) => {
     const { teamId, role, name } = req.body ?? {};
     const userId = req.params.id;
+    const caller = req.user!;
 
-    // ── Update DynamoDB ─────────────────────────────────────────────────────
+    // Org-boundary check + role-change rules.
+    const { Item: target } = await ddb.send(
+      new GetCommand({ TableName: config.tables.users, Key: { userId } })
+    );
+    if (!target || target.orgId !== caller.orgId) {
+      throw new HttpError(404, "User not found");
+    }
+    if (target.role === "admin" && caller.sub !== target.userId) {
+      throw new HttpError(403, "Cannot modify the organization admin");
+    }
+    if (caller.role === "manager" && target.role !== "employee") {
+      throw new HttpError(403, "Managers can only modify employees");
+    }
+    if (role !== undefined) {
+      if (!["manager", "employee"].includes(role)) {
+        throw new HttpError(400, "Invalid role (must be manager or employee)");
+      }
+      if (caller.role === "manager") {
+        throw new HttpError(403, "Managers cannot change roles");
+      }
+    }
+    if (teamId !== undefined && teamId) {
+      const { Item: team } = await ddb.send(
+        new GetCommand({ TableName: config.tables.teams, Key: { teamId } })
+      );
+      if (!team || team.orgId !== caller.orgId) {
+        throw new HttpError(404, "Team not found");
+      }
+    }
+
     const sets: string[] = [];
     const values: Record<string, unknown> = {};
     const exprNames: Record<string, string> = {};
@@ -138,7 +194,6 @@ router.put(
       })
     );
 
-    // ── Sync changes to Cognito user attributes ─────────────────────────────
     const cognitoAttrs: { Name: string; Value: string }[] = [];
     if (role   !== undefined) cognitoAttrs.push({ Name: "custom:role",   Value: role });
     if (teamId !== undefined) cognitoAttrs.push({ Name: "custom:teamId", Value: teamId });

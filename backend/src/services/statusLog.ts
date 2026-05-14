@@ -8,6 +8,7 @@ export async function recordStatusChange(params: {
   fromStatus: string;
   toStatus: string;
   changedBy: string;
+  orgId: string;
 }) {
   await ddb.send(
     new PutCommand({
@@ -18,6 +19,7 @@ export async function recordStatusChange(params: {
         fromStatus: params.fromStatus,
         toStatus: params.toStatus,
         changedBy: params.changedBy,
+        orgId: params.orgId,
         changedAt: new Date().toISOString(),
       },
     })

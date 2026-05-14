@@ -1,6 +1,7 @@
 // Cognito auth helpers — used by api.ts and useAuth hook.
 // Wraps browser localStorage token storage (Amplify-style manual flow).
 
+import axios from "axios";
 import {
   CognitoIdentityProviderClient,
   InitiateAuthCommand,
@@ -55,6 +56,32 @@ export function getIdToken(): string | null {
 
 export function isLoggedIn(): boolean {
   return !!getIdToken();
+}
+
+// Register a new organization + its root admin account via the backend public endpoint.
+// This is the ONLY public account-creation endpoint — managers and employees are
+// created from inside the app by an authenticated admin/manager.
+export async function registerOrganization(
+  organizationName: string,
+  adminName: string,
+  adminEmail: string,
+  password: string,
+) {
+  const base = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/api").replace(/\/+$/, "");
+  const res = await axios.post(
+    `${base}/auth/register-organization`,
+    { organizationName, adminName, adminEmail, password },
+    { headers: { "Content-Type": "application/json" } },
+  );
+  return res.data as { message: string; orgId: string; adminUserId: string };
+}
+
+// Read the caller's orgId out of the current ID token (no verification — backend verifies).
+export function getOrgId(): string | null {
+  const token = getIdToken();
+  if (!token) return null;
+  const payload = parseTokenPayload(token);
+  return (payload["custom:orgId"] as string | undefined) ?? null;
 }
 
 // Parse the JWT payload (no verification — backend verifies)

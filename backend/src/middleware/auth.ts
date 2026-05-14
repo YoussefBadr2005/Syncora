@@ -18,11 +18,13 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     const payload = await verifier.verify(token);
     const role = (payload["custom:role"] as Role | undefined) ?? "employee";
     const teamId = (payload["custom:teamId"] as string | undefined) ?? "";
+    const orgId = (payload["custom:orgId"] as string | undefined) ?? "";
     req.user = {
       sub: payload.sub,
       email: (payload as Record<string, unknown>).email as string | undefined,
       role,
       teamId,
+      orgId,
     };
     return next();
   } catch (err) {

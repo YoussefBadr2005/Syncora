@@ -4,7 +4,7 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "package": "npm run build && cd dist && zip -r ../function.zip . && cd .."
+    "package": "npm run build && npm install --os=linux --cpu=x64 sharp && node package.js"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.658.0",

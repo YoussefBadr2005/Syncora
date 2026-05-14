@@ -8,6 +8,7 @@ export async function publishTaskAssignment(payload: {
   taskTitle: string;
   assigneeId: string;
   teamId: string;
+  orgId: string;
   assignedBy: string;
 }) {
   if (!config.sns.taskAssignmentTopicArn) return;

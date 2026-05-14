@@ -12,6 +12,7 @@ import { ddb } from "../aws";
 import { config } from "../config";
 import { requireRole } from "../middleware/auth";
 import { assertTeamMatches } from "../middleware/teamGuard";
+import { assertSameOrg } from "../middleware/orgGuard";
 import { asyncHandler, HttpError } from "../middleware/error";
 import { Task, TaskPriority, TaskStatus, TASK_PRIORITIES, TASK_STATUSES } from "../types";
 import { recordStatusChange } from "../services/statusLog";
@@ -52,6 +53,18 @@ router.post(
       throw new HttpError(400, "Invalid priority");
     }
 
+    // Verify the team and assignee belong to caller's org.
+    const [{ Item: team }, { Item: assignee }] = await Promise.all([
+      ddb.send(new GetCommand({ TableName: config.tables.teams, Key: { teamId } })),
+      ddb.send(new GetCommand({ TableName: config.tables.users, Key: { userId: assigneeId } })),
+    ]);
+    if (!team || team.orgId !== req.user!.orgId) {
+      throw new HttpError(404, "Team not found");
+    }
+    if (!assignee || assignee.orgId !== req.user!.orgId) {
+      throw new HttpError(404, "Assignee not found");
+    }
+
     const now = new Date().toISOString();
     const task: Task = {
       taskId: uuid(),
@@ -63,6 +76,7 @@ router.post(
       deadline: deadline ?? "",
       assigneeId,
       teamId,
+      orgId: req.user!.orgId,
       createdBy: req.user!.sub,
       createdAt: now,
       updatedAt: now,
@@ -76,9 +90,10 @@ router.post(
         taskTitle: task.title,
         assigneeId: task.assigneeId,
         teamId: task.teamId,
+        orgId: task.orgId,
         assignedBy: req.user!.sub,
       }),
-      emitMetric("TasksCreated", 1, { TeamId: task.teamId }),
+      emitMetric("TasksCreated", 1, { TeamId: task.teamId, OrgId: task.orgId }),
     ]);
 
     res.status(201).json(task);
@@ -101,10 +116,10 @@ router.get(
             ExpressionAttributeValues: { ":a": assigneeId },
           })
         );
-        return res.json(filterByProject(Items ?? [], projectId));
+        return res.json(filterScope(Items ?? [], projectId, user.orgId));
       }
       const { Items } = await ddb.send(new ScanCommand({ TableName: config.tables.tasks }));
-      return res.json(filterByProject(Items ?? [], projectId));
+      return res.json(filterScope(Items ?? [], projectId, user.orgId));
     }
 
     const { Items } = await ddb.send(
@@ -115,20 +130,21 @@ router.get(
         ExpressionAttributeValues: { ":tid": user.teamId },
       })
     );
-    res.json(filterByProject(Items ?? [], projectId));
+    res.json(filterScope(Items ?? [], projectId, user.orgId));
   })
 );
 
-function filterByProject(items: Record<string, unknown>[], projectId?: string) {
-  if (!projectId) return items;
-  return items.filter((it) => it.projectId === projectId);
+function filterScope(items: Record<string, unknown>[], projectId: string | undefined, orgId: string) {
+  let out = items.filter((it) => it.orgId === orgId);
+  if (projectId) out = out.filter((it) => it.projectId === projectId);
+  return out;
 }
 
 router.get(
   "/:id",
   asyncHandler(async (req, res) => {
     const task = await getTaskById(req.params.id);
-    if (!task) throw new HttpError(404, "Task not found");
+    if (!task || !assertSameOrg(req, task.orgId)) throw new HttpError(404, "Task not found");
     if (!assertTeamMatches(req, task.teamId)) throw new HttpError(403, "Forbidden");
     res.json(task);
   })
@@ -138,7 +154,7 @@ router.put(
   "/:id",
   asyncHandler(async (req, res) => {
     const task = await getTaskById(req.params.id);
-    if (!task) throw new HttpError(404, "Task not found");
+    if (!task || !assertSameOrg(req, task.orgId)) throw new HttpError(404, "Task not found");
 
     const user = req.user!;
     const isManager = user.role === "manager" || user.role === "admin";
@@ -204,9 +220,10 @@ router.put(
         fromStatus: task.status,
         toStatus: updated.status,
         changedBy: user.sub,
+        orgId: task.orgId,
       });
       if (updated.status === "Done") {
-        await emitMetric("TasksClosed", 1, { TeamId: updated.teamId });
+        await emitMetric("TasksClosed", 1, { TeamId: updated.teamId, OrgId: task.orgId });
       }
     }
 
@@ -216,6 +233,7 @@ router.put(
         taskTitle: updated.title,
         assigneeId: updated.assigneeId,
         teamId: updated.teamId,
+        orgId: task.orgId,
         assignedBy: user.sub,
       });
     }
@@ -229,7 +247,7 @@ router.delete(
   requireRole("manager", "admin"),
   asyncHandler(async (req, res) => {
     const task = await getTaskById(req.params.id);
-    if (!task) throw new HttpError(404, "Task not found");
+    if (!task || !assertSameOrg(req, task.orgId)) throw new HttpError(404, "Task not found");
     await ddb.send(
       new DeleteCommand({
         TableName: config.tables.tasks,

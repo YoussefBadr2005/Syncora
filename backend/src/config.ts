@@ -16,6 +16,7 @@ export const config = {
   },
 
   tables: {
+    organizations: process.env.DDB_ORGS_TABLE || "Organizations",
     users: process.env.DDB_USERS_TABLE || "Users",
     teams: process.env.DDB_TEAMS_TABLE || "Teams",
     projects: process.env.DDB_PROJECTS_TABLE || "Projects",
@@ -30,6 +31,8 @@ export const config = {
     tasksAssignee: process.env.DDB_TASKS_ASSIGNEE_INDEX || "assigneeId-index",
     projectsTeam: process.env.DDB_PROJECTS_TEAM_INDEX || "teamId-index",
     commentsTask: process.env.DDB_COMMENTS_TASK_INDEX || "taskId-index",
+    usersOrg: process.env.DDB_USERS_ORG_INDEX || "orgId-index",
+    teamsOrg: process.env.DDB_TEAMS_ORG_INDEX || "orgId-index",
   },
 
   s3: {
