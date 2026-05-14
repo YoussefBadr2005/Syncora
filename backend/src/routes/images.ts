@@ -1,0 +1,86 @@
+import { Router } from "express";
+import { UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { ddb } from "../aws";
+import { config } from "../config";
+import { asyncHandler, HttpError } from "../middleware/error";
+import { assertTeamMatches } from "../middleware/teamGuard";
+import { requireRole } from "../middleware/auth";
+import { getTaskById } from "./tasks";
+import { getUploadUrl, getDownloadUrl, deleteObject } from "../services/images";
+
+const router = Router({ mergeParams: true });
+
+router.post(
+  "/:id/image",
+  asyncHandler(async (req, res) => {
+    const task = await getTaskById(req.params.id);
+    if (!task) throw new HttpError(404, "Task not found");
+    if (!assertTeamMatches(req, task.teamId)) throw new HttpError(403, "Forbidden");
+
+    const { filename, contentType } = req.body ?? {};
+    if (!filename) throw new HttpError(400, "filename required");
+
+    const { url, key } = await getUploadUrl(task.taskId, filename, contentType);
+
+    await ddb.send(
+      new UpdateCommand({
+        TableName: config.tables.tasks,
+        Key: { taskId: task.taskId, projectId: task.projectId },
+        UpdateExpression: "SET imageKey = :k, thumbnailKey = :t, updatedAt = :u",
+        ExpressionAttributeValues: {
+          ":k": key,
+          ":t": key.replace("/originals/", "/thumbnails/"),
+          ":u": new Date().toISOString(),
+        },
+      })
+    );
+
+    res.json({ uploadUrl: url, key });
+  })
+);
+
+router.get(
+  "/:id/image-url",
+  asyncHandler(async (req, res) => {
+    const task = await getTaskById(req.params.id);
+    if (!task) throw new HttpError(404, "Task not found");
+    if (!assertTeamMatches(req, task.teamId)) throw new HttpError(403, "Forbidden");
+
+    const which = (req.query.variant as string) === "original" ? "original" : "thumbnail";
+    const bucket = which === "original" ? config.s3.originalsBucket : config.s3.resizedBucket;
+    const key = which === "original" ? task.imageKey : task.thumbnailKey;
+    if (!key) throw new HttpError(404, "No image attached");
+
+    const url = await getDownloadUrl(bucket, key);
+    res.json({ url });
+  })
+);
+
+router.delete(
+  "/:id/image",
+  requireRole("manager", "admin"),
+  asyncHandler(async (req, res) => {
+    const task = await getTaskById(req.params.id);
+    if (!task) throw new HttpError(404, "Task not found");
+
+    if (task.imageKey) {
+      await deleteObject(config.s3.originalsBucket, task.imageKey).catch(() => undefined);
+    }
+    if (task.thumbnailKey) {
+      await deleteObject(config.s3.resizedBucket, task.thumbnailKey).catch(() => undefined);
+    }
+
+    await ddb.send(
+      new UpdateCommand({
+        TableName: config.tables.tasks,
+        Key: { taskId: task.taskId, projectId: task.projectId },
+        UpdateExpression: "REMOVE imageKey, thumbnailKey SET updatedAt = :u",
+        ExpressionAttributeValues: { ":u": new Date().toISOString() },
+      })
+    );
+
+    res.status(204).send();
+  })
+);
+
+export default router;

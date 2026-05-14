@@ -1,0 +1,39 @@
+# Secrets — never commit
+aws-output.env
+backend/.env
+frontend/.env.local
+frontend/my-app/.env.local
+*.env.local
+
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build output
+dist/
+**/dist/
+.next/
+**/.next/
+out/
+**/out/
+
+# Lambda zips
+**/function.zip
+lambdas/**/_staging/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Temp files
+*.tmp
+sqs-policy.json
+sqs-attrs.json
