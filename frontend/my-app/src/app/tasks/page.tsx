@@ -65,21 +65,52 @@ function FilterDropdown({ options, value, onChange, label }: {
         </svg>
       </button>
       {open && (
-        <div className="absolute left-0 top-full mt-1 bg-surface-container-low border border-outline-variant rounded-lg z-50 overflow-hidden"
-             style={{ minWidth: 160, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
-          {options.map(o => (
-            <button key={o} type="button" onClick={() => { onChange(o); setOpen(false); }}
-              className="w-full text-left px-4 py-2.5 text-sm hover:bg-surface-container-high transition-colors flex items-center gap-2"
-              style={{ color: o === value ? "#e5e2e1" : "#8e9192", fontWeight: o === value ? 600 : 400 }}>
-              {o}
-              {o === value && (
-                <svg className="ml-auto" width="12" height="12" viewBox="0 0 24 24" fill="none"
-                     stroke="#e5e2e1" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12"/>
-                </svg>
-              )}
-            </button>
-          ))}
+        <div
+          className="absolute left-0 top-full mt-1.5 z-50 overflow-hidden"
+          style={{
+            minWidth: 176,
+            background: "#1c1b1b",
+            border: "1px solid #444748",
+            borderRadius: 10,
+            boxShadow: "0 12px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)",
+          }}>
+          <div className="p-1">
+            {options.map(o => {
+              const selected = o === value;
+              return (
+                <button key={o} type="button" onClick={() => { onChange(o); setOpen(false); }}
+                  className="w-full text-left flex items-center gap-2.5 transition-colors"
+                  style={{
+                    padding: "6px 8px",
+                    borderRadius: 6,
+                    fontSize: 13,
+                    background: selected ? "rgba(255,255,255,0.07)" : "transparent",
+                    color: selected ? "#e5e2e1" : "#8e9192",
+                    fontWeight: selected ? 500 : 400,
+                  }}
+                  onMouseEnter={e => { if (!selected) (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.04)"; (e.currentTarget as HTMLButtonElement).style.color = "#e5e2e1"; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = selected ? "rgba(255,255,255,0.07)" : "transparent"; (e.currentTarget as HTMLButtonElement).style.color = selected ? "#e5e2e1" : "#8e9192"; }}
+                >
+                  <span
+                    className="flex-shrink-0"
+                    style={{
+                      width: 3,
+                      height: 14,
+                      borderRadius: 9999,
+                      background: selected ? "#ffffff" : "transparent",
+                    }}
+                  />
+                  <span className="flex-1 truncate">{o}</span>
+                  {selected && (
+                    <svg className="flex-shrink-0" width="11" height="11" viewBox="0 0 24 24" fill="none"
+                         stroke="#e5e2e1" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12"/>
+                    </svg>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

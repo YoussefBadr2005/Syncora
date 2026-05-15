@@ -24,6 +24,7 @@ export default function Navbar() {
         <Link href="/dashboard" className="text-sm text-gray-600 hover:text-gray-900">Dashboard</Link>
         <Link href="/projects"  className="text-sm text-gray-600 hover:text-gray-900">Projects</Link>
         <Link href="/tasks"     className="text-sm text-gray-600 hover:text-gray-900">Tasks</Link>
+        <Link href="/digest"    className="text-sm text-gray-600 hover:text-gray-900">Digest</Link>
         {isManager && (
           <>
             <Link href="/teams" className="text-sm text-gray-600 hover:text-gray-900">Teams</Link>

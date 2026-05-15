@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ProtectedLayout from "@/components/layout/ProtectedLayout";
 import { useAuth } from "@/hooks/useAuth";
 import api from "@/lib/api";
@@ -155,37 +155,51 @@ function KanbanColumn({ label, count, tasks, users, userId, projectMap = {} }: {
 function ManagerDashboard({ tasks, teams, users, projects }: {
   tasks: Task[]; teams: Team[]; users: User[]; projects: Project[];
 }) {
-  const active     = tasks.filter(t => t.status !== "Done");
-  const overdue    = tasks.filter(t => isOverdue(t));
   const projectMap = Object.fromEntries(projects.map(p => [p.projectId, p.name]));
 
+  const [teamFilter, setTeamFilter]       = useState("all");
+  const [teamDropOpen, setTeamDropOpen]   = useState(false);
+  const teamDropRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!teamDropOpen) return;
+    const h = (e: MouseEvent) => { if (teamDropRef.current && !teamDropRef.current.contains(e.target as Node)) setTeamDropOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [teamDropOpen]);
+
+  const filteredTasks = teamFilter === "all"
+    ? tasks
+    : tasks.filter(t => t.teamId === teamFilter);
+
+  const active  = filteredTasks.filter(t => t.status !== "Done");
+  const overdue = filteredTasks.filter(t => isOverdue(t));
+
   const avgClose = (() => {
-    const closed = tasks.filter(t => t.status === "Done" && t.createdAt && t.updatedAt);
+    const closed = filteredTasks.filter(t => t.status === "Done" && t.createdAt && t.updatedAt);
     if (!closed.length) return null;
     const avg = closed.reduce((s, t) =>
       s + (new Date(t.updatedAt).getTime() - new Date(t.createdAt).getTime()), 0) / closed.length;
     return (avg / 86400000).toFixed(1);
   })();
 
-  // Top team by task volume
+  // When a specific team is filtered, show that team; otherwise show the top team by volume
   const topTeam = (() => {
+    if (teamFilter !== "all") {
+      const team = teams.find(t => t.teamId === teamFilter);
+      return team ? { team, count: filteredTasks.length } : null;
+    }
     if (!teams.length) return null;
     return teams.map(t => ({ team: t, count: tasks.filter(x => x.teamId === t.teamId).length }))
       .sort((a, b) => b.count - a.count)[0];
   })();
 
-  const teamRows = teams.map(team => {
-    const tt   = tasks.filter(t => t.teamId === team.teamId);
-    const done = tt.filter(t => t.status === "Done").length;
-    const pct  = tt.length ? Math.round((done / tt.length) * 100) : 0;
-    return { team, total: tt.length, done, pct };
-  });
-
-  const [teamFilter, setTeamFilter] = useState("all");
-
-  const filteredTasks = teamFilter === "all"
-    ? tasks
-    : tasks.filter(t => t.teamId === teamFilter);
+  const teamRows = (teamFilter === "all" ? teams : teams.filter(t => t.teamId === teamFilter))
+    .map(team => {
+      const tt   = filteredTasks.filter(t => t.teamId === team.teamId);
+      const done = tt.filter(t => t.status === "Done").length;
+      const pct  = tt.length ? Math.round((done / tt.length) * 100) : 0;
+      return { team, total: tt.length, done, pct };
+    });
 
   const kanbanCols = [
     { label: "To Do",       tasks: filteredTasks.filter(t => (t.status as string) === "To Do") },
@@ -211,21 +225,49 @@ function ManagerDashboard({ tasks, teams, users, projects }: {
           </p>
         </div>
         <div className="flex items-center gap-3 w-full md:w-auto">
-          <div className="relative flex-1 md:w-48">
-            <select
-              value={teamFilter}
-              onChange={e => setTeamFilter(e.target.value)}
-              className="w-full appearance-none bg-surface-container border border-outline-variant text-on-surface py-2 pl-3 pr-10 rounded-lg focus:outline-none focus:border-outline cursor-pointer transition-colors"
-              style={{ fontSize: 14 }}>
-              <option value="all">All Teams</option>
-              {teams.map(t => (
-                <option key={t.teamId} value={t.teamId}>{t.name}</option>
-              ))}
-            </select>
-            <svg className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-on-surface-variant" width="16" height="16"
-                 viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="6 9 12 15 18 9"/>
-            </svg>
+          <div ref={teamDropRef} className="relative" style={{ minWidth: 148 }}>
+            <button type="button" onClick={() => setTeamDropOpen(o => !o)}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors border w-full"
+              style={{
+                background: teamFilter !== "all" ? "rgba(255,255,255,0.06)" : "transparent",
+                borderColor: teamFilter !== "all" ? "#8e9192" : "#444748",
+                color: teamFilter !== "all" ? "#e5e2e1" : "#8e9192",
+              }}>
+              <span className="flex-1 text-left truncate" style={{ fontSize: 13 }}>
+                {teamFilter === "all" ? "All Teams" : (teams.find(t => t.teamId === teamFilter)?.name ?? "All Teams")}
+              </span>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+                   strokeLinecap="round" strokeLinejoin="round" style={{ transform: teamDropOpen ? "rotate(180deg)" : "none", transition: "transform .15s", flexShrink: 0 }}>
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
+            {teamDropOpen && (
+              <div className="absolute right-0 top-full mt-1.5 z-50 overflow-hidden"
+                   style={{ minWidth: 176, background: "#1c1b1b", border: "1px solid #444748", borderRadius: 10, boxShadow: "0 12px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)" }}>
+                <div className="p-1">
+                  {[{ value: "all", label: "All Teams" }, ...teams.map(t => ({ value: t.teamId, label: t.name }))].map(opt => {
+                    const selected = opt.value === teamFilter;
+                    return (
+                      <button key={opt.value} type="button"
+                        onClick={() => { setTeamFilter(opt.value); setTeamDropOpen(false); }}
+                        className="w-full text-left flex items-center gap-2.5 transition-colors"
+                        style={{ padding: "6px 8px", borderRadius: 6, fontSize: 13, background: selected ? "rgba(255,255,255,0.07)" : "transparent", color: selected ? "#e5e2e1" : "#8e9192", fontWeight: selected ? 500 : 400 }}
+                        onMouseEnter={e => { if (!selected) { (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.04)"; (e.currentTarget as HTMLButtonElement).style.color = "#e5e2e1"; } }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = selected ? "rgba(255,255,255,0.07)" : "transparent"; (e.currentTarget as HTMLButtonElement).style.color = selected ? "#e5e2e1" : "#8e9192"; }}>
+                        <span className="flex-shrink-0" style={{ width: 3, height: 14, borderRadius: 9999, background: selected ? "#ffffff" : "transparent" }} />
+                        <span className="flex-1 truncate">{opt.label}</span>
+                        {selected && (
+                          <svg className="flex-shrink-0" width="11" height="11" viewBox="0 0 24 24" fill="none"
+                               stroke="#e5e2e1" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="20 6 9 17 4 12"/>
+                          </svg>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
           <button className="p-2 border border-outline-variant rounded-lg text-on-surface-variant hover:text-primary hover:border-outline transition-colors">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -292,7 +334,7 @@ function ManagerDashboard({ tasks, teams, users, projects }: {
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="6 9 12 15 18 9"/>
               </svg>
-              {tasks.filter(t => t.status === "Done").length} tasks closed
+              {filteredTasks.filter(t => t.status === "Done").length} tasks closed
             </div>
           </div>
           {/* Bar chart sparkline */}
@@ -314,7 +356,7 @@ function ManagerDashboard({ tasks, teams, users, projects }: {
               {topTeam?.team.name ?? "—"}
             </div>
             <div className="text-on-surface-variant mt-2" style={{ fontSize: 11, fontWeight: 600, lineHeight: 1 }}>
-              Highest volume currently
+              {teamFilter === "all" ? "Highest volume currently" : `${filteredTasks.length} tasks total`}
             </div>
           </div>
           {/* Progress bars */}

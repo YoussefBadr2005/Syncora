@@ -176,7 +176,9 @@ fi
 
 # ── ActivityLogs ──────────────────────────────────────────────────────────────
 # PK: logId
-# Written by the Assignment Worker Lambda via SQS.
+# Written by the Assignment Worker Lambda via SQS and by API handlers.
+# GSI taskId-index : per-task activity feed.
+# GSI orgId-index  : org-wide activity feed.
 log "ActivityLogs table..."
 if table_exists ActivityLogs; then
   skip "ActivityLogs already exists"
@@ -185,8 +187,22 @@ else
     --table-name ActivityLogs \
     --attribute-definitions \
       AttributeName=logId,AttributeType=S \
+      AttributeName=taskId,AttributeType=S \
+      AttributeName=orgId,AttributeType=S \
     --key-schema \
       AttributeName=logId,KeyType=HASH \
+    --global-secondary-indexes '[
+      {
+        "IndexName": "taskId-index",
+        "KeySchema": [{ "AttributeName": "taskId", "KeyType": "HASH" }],
+        "Projection": { "ProjectionType": "ALL" }
+      },
+      {
+        "IndexName": "orgId-index",
+        "KeySchema": [{ "AttributeName": "orgId", "KeyType": "HASH" }],
+        "Projection": { "ProjectionType": "ALL" }
+      }
+    ]' \
     --billing-mode $BILLING
   wait_active ActivityLogs
 fi

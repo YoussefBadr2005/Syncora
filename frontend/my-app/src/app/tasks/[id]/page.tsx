@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import ProtectedLayout from "@/components/layout/ProtectedLayout";
+import ActivityFeed from "@/components/ActivityFeed";
 import { useAuth } from "@/hooks/useAuth";
 import api from "@/lib/api";
-import type { Task, Comment, User, Project, Team, ActivityLog } from "@/types";
+import type { Task, Comment, User, Project, Team } from "@/types";
 
 const STATUS_CONFIG = {
   "To Do":       { dot: "#6b7280", bg: "rgba(107,114,128,0.10)", text: "#8a8f96" },
@@ -43,11 +44,6 @@ function timeAgo(iso: string) {
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
-
-function formatDateTime(iso: string) {
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }) +
-    " · " + new Date(iso).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 }
 
 // ── Avatar ────────────────────────────────────────────────────────────────────
@@ -142,7 +138,6 @@ export default function TaskDetailPage() {
 
   const [task,         setTask]        = useState<Task | null>(null);
   const [comments,     setComments]    = useState<Comment[]>([]);
-  const [activity,     setActivity]    = useState<ActivityLog[]>([]);
   const [users,        setUsers]       = useState<User[]>([]);
   const [projects,     setProjects]    = useState<Project[]>([]);
   const [teams,        setTeams]       = useState<Team[]>([]);
@@ -198,13 +193,12 @@ export default function TaskDetailPage() {
     Promise.all([
       api.get(`/tasks/${taskId}`).then(r => r.data as Task),
       api.get(`/tasks/${taskId}/comments`).then(r => r.data as Comment[]).catch(() => []),
-      api.get(`/tasks/${taskId}/activity`).then(r => r.data as ActivityLog[]).catch(() => []),
       api.get("/projects").then(r => r.data as Project[]),
       isManager ? api.get("/teams").then(r => r.data as Team[]) : Promise.resolve([] as Team[]),
       isManager ? api.get("/users").then(r => r.data as User[]) : Promise.resolve([] as User[]),
-    ]).then(([t, c, a, p, tm, u]) => {
+    ]).then(([t, c, p, tm, u]) => {
       setTask({ ...t, status: normalizeStatus(t.status) as Task["status"] });
-      setComments(c); setActivity(a); setProjects(p); setTeams(tm); setUsers(u);
+      setComments(c); setProjects(p); setTeams(tm); setUsers(u);
       if (t.imageKey) {
         api.get(`/tasks/${taskId}/image-url`).then(r => setImageUrl(r.data?.url ?? null)).catch(() => null);
       }
@@ -540,40 +534,10 @@ export default function TaskDetailPage() {
           </div>
 
           {/* History */}
-          {activity.length > 0 && (
-            <div className="bg-surface-container rounded-xl border border-outline-variant p-5">
-              <p className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant mb-4">History</p>
-              <div className="space-y-0">
-                {activity.slice(0, 8).map((a, i) => {
-                  const toStatus   = (a as unknown as Record<string, string>).toStatus;
-                  const fromStatus = (a as unknown as Record<string, string>).fromStatus;
-                  const changedBy  = (a as unknown as Record<string, string>).changedBy;
-                  const changedAt  = (a as unknown as Record<string, string>).changedAt ?? a.createdAt;
-                  const sc = STATUS_CONFIG[normalizeStatus(toStatus) as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG["To Do"];
-                  const isLast = i === Math.min(activity.length, 8) - 1;
-
-                  return (
-                    <div key={a.logId ?? i} className="flex gap-3">
-                      <div className="flex flex-col items-center flex-shrink-0" style={{ width: 16 }}>
-                        <span className="w-2 h-2 rounded-full mt-1 flex-shrink-0" style={{ background: sc.dot }} />
-                        {!isLast && <div className="w-px flex-1 mt-1 mb-1" style={{ background: "#444748" }} />}
-                      </div>
-                      <div className="pb-3 flex-1 min-w-0">
-                        <p className="text-xs text-on-surface leading-snug">
-                          Moved to <span className="font-semibold" style={{ color: sc.text }}>{normalizeStatus(toStatus)}</span>
-                          {fromStatus && <span className="text-on-surface-variant"> from {normalizeStatus(fromStatus)}</span>}
-                        </p>
-                        <p className="text-[10px] text-on-surface-variant/60 mt-0.5">
-                          {changedAt ? formatDateTime(changedAt) : ""}
-                          {changedBy ? ` · ${displayName(changedBy)}` : ""}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+          <div className="bg-surface-container rounded-xl border border-outline-variant p-5">
+            <p className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant mb-4">History</p>
+            <ActivityFeed taskId={taskId} limit={8} />
+          </div>
 
           {/* Manager actions */}
           {isManager && (

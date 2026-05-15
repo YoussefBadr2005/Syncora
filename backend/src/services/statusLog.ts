@@ -25,3 +25,32 @@ export async function recordStatusChange(params: {
     })
   );
 }
+
+export type ActivityType =
+  | "TASK_CREATED"
+  | "STATUS_CHANGED"
+  | "TASK_ASSIGNED"
+  | "COMMENT_ADDED";
+
+export async function recordActivity(params: {
+  taskId: string;
+  orgId: string;
+  userId: string;
+  type: ActivityType;
+  payload?: Record<string, unknown>;
+}) {
+  await ddb.send(
+    new PutCommand({
+      TableName: config.tables.activityLogs,
+      Item: {
+        logId: uuid(),
+        taskId: params.taskId,
+        orgId: params.orgId,
+        userId: params.userId,
+        type: params.type,
+        payload: params.payload ?? {},
+        createdAt: new Date().toISOString(),
+      },
+    })
+  );
+}

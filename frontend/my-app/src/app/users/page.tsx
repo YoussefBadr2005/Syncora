@@ -70,7 +70,7 @@ function Dropdown({ options, value, onChange, placeholder }: {
 }
 
 // ── Row action menu ───────────────────────────────────────────────────────────
-function RowMenu({ onAssign }: { onAssign: () => void }) {
+function RowMenu({ onAssign, onDelete }: { onAssign: () => void; onDelete: () => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -89,46 +89,68 @@ function RowMenu({ onAssign }: { onAssign: () => void }) {
         </svg>
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 bg-surface-container-low border border-outline-variant rounded-lg z-50 overflow-hidden"
-             style={{ minWidth: 160, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
-          <button type="button" onClick={() => { onAssign(); setOpen(false); }}
-            className="w-full text-left px-4 py-2.5 text-sm text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors flex items-center gap-2.5">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/>
-            </svg>
-            Reassign Team
-          </button>
+        <div className="absolute right-0 top-full mt-1.5 z-50 overflow-hidden"
+             style={{ minWidth: 160, background: "#1c1b1b", border: "1px solid #444748", borderRadius: 10, boxShadow: "0 12px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)" }}>
+          <div className="p-1">
+            <button type="button" onClick={() => { onAssign(); setOpen(false); }}
+              className="w-full text-left flex items-center gap-2.5 transition-colors"
+              style={{ padding: "6px 8px", borderRadius: 6, fontSize: 13, color: "#8e9192" }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.04)"; (e.currentTarget as HTMLButtonElement).style.color = "#e5e2e1"; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; (e.currentTarget as HTMLButtonElement).style.color = "#8e9192"; }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/>
+              </svg>
+              Reassign Team
+            </button>
+            <div style={{ height: 1, background: "#444748", margin: "4px 8px" }} />
+            <button type="button" onClick={() => { onDelete(); setOpen(false); }}
+              className="w-full text-left flex items-center gap-2.5 transition-colors"
+              style={{ padding: "6px 8px", borderRadius: 6, fontSize: 13, color: "#b05555" }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(176,85,85,0.1)"; (e.currentTarget as HTMLButtonElement).style.color = "#d07070"; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; (e.currentTarget as HTMLButtonElement).style.color = "#b05555"; }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+              </svg>
+              Remove Employee
+            </button>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-// ── Create Employee Modal ─────────────────────────────────────────────────────
-function CreateEmployeeModal({ teams, onClose, onCreated }: {
-  teams: Team[]; onClose: () => void; onCreated: (u: User) => void;
+// ── Create User Modal ─────────────────────────────────────────────────────────
+function CreateEmployeeModal({ teams, onClose, onCreated, isAdmin = false }: {
+  teams: Team[]; onClose: () => void; onCreated: (u: User) => void; isAdmin?: boolean;
 }) {
   const [name, setName]         = useState("");
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [teamId, setTeamId]     = useState("");
+  const [role, setRole]         = useState<"employee" | "manager">("employee");
   const [error, setError]       = useState("");
   const [loading, setLoading]   = useState(false);
 
   const teamOptions = teams.map(t => ({ value: t.teamId, label: t.name }));
+  const needsTeam   = role === "employee";
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !email.trim()) { setError("Name and email are required."); return; }
     if (password.length < 8) { setError("Password must be at least 8 characters."); return; }
-    if (!teamId) { setError("Please select a team."); return; }
+    if (needsTeam && !teamId) { setError("Please select a team."); return; }
     setError(""); setLoading(true);
     try {
-      const res = await api.post("/users", { name: name.trim(), email: email.trim(), password, role: "employee", teamId });
+      const res = await api.post("/users", {
+        name: name.trim(), email: email.trim(), password,
+        role,
+        teamId: needsTeam ? teamId : "",
+      });
       onCreated(res.data);
     } catch (err: unknown) {
-      setError((err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? "Failed to create employee.");
+      setError((err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? "Failed to create user.");
     } finally { setLoading(false); }
   };
 
@@ -140,8 +162,12 @@ function CreateEmployeeModal({ teams, onClose, onCreated }: {
 
         <div className="flex items-center justify-between px-6 py-5 border-b border-outline-variant">
           <div>
-            <h2 className="text-sm font-semibold text-on-surface">Add employee</h2>
-            <p className="text-xs text-on-surface-variant mt-0.5">New employees can log in immediately with the given password.</p>
+            <h2 className="text-sm font-semibold text-on-surface">
+              {isAdmin ? "Add user" : "Add employee"}
+            </h2>
+            <p className="text-xs text-on-surface-variant mt-0.5">
+              {isAdmin ? "Create a manager or employee. They can log in immediately." : "New employees can log in immediately with the given password."}
+            </p>
           </div>
           <button type="button" onClick={onClose}
             className="w-8 h-8 rounded-lg flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors flex-shrink-0 ml-4">
@@ -159,6 +185,26 @@ function CreateEmployeeModal({ teams, onClose, onCreated }: {
                 <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
               </svg>
               {error}
+            </div>
+          )}
+
+          {/* Role selector — admin only */}
+          {isAdmin && (
+            <div>
+              <label className="block text-xs font-medium text-on-surface-variant mb-1.5">Role</label>
+              <div className="flex gap-2">
+                {(["employee", "manager"] as const).map(r => (
+                  <button key={r} type="button" onClick={() => setRole(r)}
+                    className="flex-1 py-2 rounded-lg text-sm font-medium border transition-colors capitalize"
+                    style={{
+                      background: role === r ? "rgba(255,255,255,0.07)" : "transparent",
+                      borderColor: role === r ? "#8e9192" : "#444748",
+                      color: role === r ? "#e5e2e1" : "#8e9192",
+                    }}>
+                    {r}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
@@ -192,10 +238,12 @@ function CreateEmployeeModal({ teams, onClose, onCreated }: {
             </div>
           </div>
 
-          <div>
-            <label className="block text-xs font-medium text-on-surface-variant mb-1.5">Team</label>
-            <Dropdown options={[{ value: "", label: "Select a team…" }, ...teamOptions]} value={teamId} onChange={setTeamId} placeholder="Select a team…" />
-          </div>
+          {needsTeam && (
+            <div>
+              <label className="block text-xs font-medium text-on-surface-variant mb-1.5">Team</label>
+              <Dropdown options={[{ value: "", label: "Select a team…" }, ...teamOptions]} value={teamId} onChange={setTeamId} placeholder="Select a team…" />
+            </div>
+          )}
 
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={onClose}
@@ -204,7 +252,7 @@ function CreateEmployeeModal({ teams, onClose, onCreated }: {
             </button>
             <button type="submit" disabled={loading}
               className="flex-1 py-2.5 rounded-lg text-sm font-semibold bg-primary text-surface-container-lowest hover:bg-primary/90 transition-colors disabled:opacity-50">
-              {loading ? "Creating…" : "Add Employee"}
+              {loading ? "Creating…" : isAdmin ? "Add User" : "Add Employee"}
             </button>
           </div>
         </form>
@@ -306,6 +354,7 @@ function SkeletonRow() {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function EmployeesPage() {
   const { user: me } = useAuth();
+  const isAdmin = me?.role === "admin";
   const [users, setUsers]     = useState<User[]>([]);
   const [teams, setTeams]     = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
@@ -313,6 +362,9 @@ export default function EmployeesPage() {
   const [teamFilter, setTeamFilter] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [assignUser, setAssignUser] = useState<User | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
+  const [deleteError, setDeleteError] = useState("");
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [page, setPage] = useState(1);
 
   useEffect(() => {
@@ -347,21 +399,38 @@ export default function EmployeesPage() {
     ...teams.map(t => ({ value: t.teamId, label: t.name })),
   ];
 
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleteLoading(true); setDeleteError("");
+    try {
+      await api.delete(`/users/${deleteTarget.userId}`);
+      setUsers(prev => prev.filter(u => u.userId !== deleteTarget.userId));
+      setDeleteTarget(null);
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? "Failed to remove employee.";
+      setDeleteError(msg);
+    } finally { setDeleteLoading(false); }
+  };
+
   return (
     <ProtectedLayout>
 
       {/* Page header */}
       <div className="flex items-start justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-on-surface tracking-tight">Employees</h1>
-          <p className="text-sm text-on-surface-variant mt-1">Manage your organisation's employees and team assignments.</p>
+          <h1 className="text-2xl font-bold text-on-surface tracking-tight">
+            {isAdmin ? "Users" : "Employees"}
+          </h1>
+          <p className="text-sm text-on-surface-variant mt-1">
+            {isAdmin ? "Manage all users, roles, and team assignments across the organisation." : "Manage your organisation's employees and team assignments."}
+          </p>
         </div>
         <button type="button" onClick={() => setShowCreate(true)}
           className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-primary text-surface-container-lowest hover:bg-primary/90 transition-colors">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
           </svg>
-          Add Employee
+          {isAdmin ? "Add User" : "Add Employee"}
         </button>
       </div>
 
@@ -387,7 +456,7 @@ export default function EmployeesPage() {
              style={{ gridTemplateColumns: "2fr 1fr 1fr 48px" }}>
           <span>User</span>
           <span>Team</span>
-          <span>Status</span>
+          <span>{isAdmin ? "Role" : "Status"}</span>
           <span />
         </div>
 
@@ -402,7 +471,7 @@ export default function EmployeesPage() {
                 <path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>
               </svg>
             </div>
-            <p className="text-sm text-on-surface font-medium">No employees found</p>
+            <p className="text-sm text-on-surface font-medium">{isAdmin ? "No users found" : "No employees found"}</p>
             <p className="text-xs text-on-surface-variant">Try adjusting your filters.</p>
           </div>
         ) : (
@@ -438,14 +507,27 @@ export default function EmployeesPage() {
                   )}
                 </div>
 
-                {/* Status */}
+                {/* Role (admin view) or Status (manager view) */}
                 <div className="flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "#2d6e52" }} />
-                  <span className="text-sm text-on-surface-variant">Active</span>
+                  {isAdmin ? (
+                    <span className="text-xs px-2 py-0.5 rounded-full capitalize"
+                      style={{
+                        background: u.role === "manager" ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.04)",
+                        color: u.role === "manager" ? "#e5e2e1" : "#8e9192",
+                        border: `1px solid ${u.role === "manager" ? "#8e9192" : "#444748"}`,
+                      }}>
+                      {u.role}
+                    </span>
+                  ) : (
+                    <>
+                      <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "#2d6e52" }} />
+                      <span className="text-sm text-on-surface-variant">Active</span>
+                    </>
+                  )}
                 </div>
 
                 {/* Actions */}
-                <RowMenu onAssign={() => setAssignUser(u)} />
+                <RowMenu onAssign={() => setAssignUser(u)} onDelete={() => { setDeleteError(""); setDeleteTarget(u); }} />
               </div>
             );
           })
@@ -477,6 +559,7 @@ export default function EmployeesPage() {
       {showCreate && (
         <CreateEmployeeModal
           teams={teams}
+          isAdmin={isAdmin}
           onClose={() => setShowCreate(false)}
           onCreated={u => { setUsers(prev => [...prev, u]); setShowCreate(false); }}
         />
@@ -487,6 +570,47 @@ export default function EmployeesPage() {
           onClose={() => setAssignUser(null)}
           onSaved={u => { setUsers(prev => prev.map(x => x.userId === u.userId ? u : x)); setAssignUser(null); }}
         />
+      )}
+
+      {/* Delete confirmation modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+             style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)" }}>
+          <div className="bg-surface-container-low border border-outline-variant rounded-xl w-full max-w-sm"
+               style={{ boxShadow: "0 24px 48px rgba(0,0,0,0.5)" }}>
+            <div className="px-6 py-5 border-b border-outline-variant">
+              <h2 className="text-sm font-semibold text-on-surface">Remove employee</h2>
+              <p className="text-xs text-on-surface-variant mt-1">
+                <span className="text-on-surface font-medium">{deleteTarget.name || deleteTarget.email}</span> will be
+                deactivated and can no longer log in. This cannot be undone.
+              </p>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              {deleteError && (
+                <div className="flex items-center gap-2 px-3.5 py-3 rounded-lg text-sm text-error"
+                     style={{ background: "rgba(255,180,171,0.08)", border: "1px solid rgba(255,180,171,0.2)" }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
+                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                  </svg>
+                  {deleteError}
+                </div>
+              )}
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setDeleteTarget(null)}
+                  className="flex-1 py-2.5 rounded-lg text-sm font-medium text-on-surface-variant border border-outline-variant hover:bg-surface-container-high hover:text-on-surface transition-colors">
+                  Cancel
+                </button>
+                <button type="button" onClick={confirmDelete} disabled={deleteLoading}
+                  className="flex-1 py-2.5 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
+                  style={{ background: "#8b3535", color: "#ffdad6" }}
+                  onMouseEnter={e => { if (!deleteLoading) (e.currentTarget as HTMLButtonElement).style.background = "#a04040"; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "#8b3535"; }}>
+                  {deleteLoading ? "Removing…" : "Remove"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </ProtectedLayout>
   );

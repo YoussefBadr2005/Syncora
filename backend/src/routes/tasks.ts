@@ -15,7 +15,7 @@ import { assertTeamMatches } from "../middleware/teamGuard";
 import { assertSameOrg } from "../middleware/orgGuard";
 import { asyncHandler, HttpError } from "../middleware/error";
 import { Task, TaskPriority, TaskStatus, TASK_PRIORITIES, TASK_STATUSES } from "../types";
-import { recordStatusChange } from "../services/statusLog";
+import { recordStatusChange, recordActivity } from "../services/statusLog";
 import { publishTaskAssignment, emitMetric } from "../services/notifications";
 
 const router = Router();
@@ -92,6 +92,13 @@ router.post(
         teamId: task.teamId,
         orgId: task.orgId,
         assignedBy: req.user!.sub,
+      }),
+      recordActivity({
+        taskId: task.taskId,
+        orgId: task.orgId,
+        userId: req.user!.sub,
+        type: "TASK_CREATED",
+        payload: { title: task.title },
       }),
       emitMetric("TasksCreated", 1, { TeamId: task.teamId, OrgId: task.orgId }),
     ]);
@@ -214,31 +221,91 @@ router.put(
 
     const updated = Attributes as Task;
 
-    if (body.status && body.status !== task.status) {
-      await recordStatusChange({
-        taskId: task.taskId,
-        fromStatus: task.status,
-        toStatus: updated.status,
-        changedBy: user.sub,
-        orgId: task.orgId,
-      });
-      if (updated.status === "Done") {
-        await emitMetric("TasksClosed", 1, { TeamId: updated.teamId, OrgId: task.orgId });
-      }
-    }
-
-    if (isManager && body.assigneeId && body.assigneeId !== task.assigneeId) {
-      await publishTaskAssignment({
-        taskId: updated.taskId,
-        taskTitle: updated.title,
-        assigneeId: updated.assigneeId,
-        teamId: updated.teamId,
-        orgId: task.orgId,
-        assignedBy: user.sub,
-      });
-    }
+    await Promise.allSettled([
+      (async () => {
+        if (body.status && body.status !== task.status) {
+          await recordStatusChange({
+            taskId: task.taskId,
+            fromStatus: task.status,
+            toStatus: updated.status,
+            changedBy: user.sub,
+            orgId: task.orgId,
+          });
+          await recordActivity({
+            taskId: task.taskId,
+            orgId: task.orgId,
+            userId: user.sub,
+            type: "STATUS_CHANGED",
+            payload: { fromStatus: task.status, toStatus: updated.status },
+          });
+          if (updated.status === "Done") {
+            await emitMetric("TasksClosed", 1, { TeamId: updated.teamId, OrgId: task.orgId });
+          }
+        }
+      })(),
+      (async () => {
+        if (isManager && body.assigneeId && body.assigneeId !== task.assigneeId) {
+          await publishTaskAssignment({
+            taskId: updated.taskId,
+            taskTitle: updated.title,
+            assigneeId: updated.assigneeId,
+            teamId: updated.teamId,
+            orgId: task.orgId,
+            assignedBy: user.sub,
+          });
+          await recordActivity({
+            taskId: updated.taskId,
+            orgId: task.orgId,
+            userId: user.sub,
+            type: "TASK_ASSIGNED",
+            payload: { assigneeId: updated.assigneeId },
+          });
+        }
+      })(),
+    ]);
 
     res.json(updated);
+  })
+);
+
+// GET /tasks/digest/today — tasks due today, grouped by assignee.
+// Managers see the whole org; employees see only their team (server-side).
+router.get(
+  "/digest/today",
+  asyncHandler(async (req, res) => {
+    const user = req.user!;
+    const today = new Date().toISOString().split("T")[0];
+
+    let items: Record<string, unknown>[];
+    if (user.role === "manager" || user.role === "admin") {
+      const { Items } = await ddb.send(new ScanCommand({ TableName: config.tables.tasks }));
+      items = filterScope(Items ?? [], undefined, user.orgId);
+    } else {
+      const { Items } = await ddb.send(
+        new QueryCommand({
+          TableName: config.tables.tasks,
+          IndexName: config.indexes.tasksTeam,
+          KeyConditionExpression: "teamId = :tid",
+          ExpressionAttributeValues: { ":tid": user.teamId },
+        })
+      );
+      items = filterScope(Items ?? [], undefined, user.orgId);
+    }
+
+    const dueToday = items.filter(
+      (t) => ((t.deadline as string) ?? "").split("T")[0] === today
+    );
+
+    const byAssignee = dueToday.reduce<Record<string, Record<string, unknown>[]>>(
+      (acc, task) => {
+        const key = (task.assigneeId as string) || "unassigned";
+        (acc[key] ??= []).push(task);
+        return acc;
+      },
+      {}
+    );
+
+    res.json({ date: today, total: dueToday.length, byAssignee });
   })
 );
 

@@ -113,4 +113,31 @@ router.post(
   })
 );
 
+// GET /teams/:id/members — active users on a team, scoped to caller's org.
+router.get(
+  "/:id/members",
+  requireRole("manager", "admin"),
+  asyncHandler(async (req, res) => {
+    const { orgId } = req.user!;
+
+    const { Item: team } = await ddb.send(
+      new GetCommand({ TableName: config.tables.teams, Key: { teamId: req.params.id } })
+    );
+    if (!team || team.orgId !== orgId) throw new HttpError(404, "Team not found");
+
+    const { Items } = await ddb.send(
+      new QueryCommand({
+        TableName: config.tables.users,
+        IndexName: config.indexes.usersOrg,
+        KeyConditionExpression: "orgId = :o",
+        ExpressionAttributeValues: { ":o": orgId },
+      })
+    );
+    const members = (Items ?? []).filter(
+      (u) => u.teamId === req.params.id && !u.deletedAt
+    );
+    res.json(members);
+  })
+);
+
 export default router;

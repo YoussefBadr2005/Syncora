@@ -33,6 +33,8 @@ export const config = {
     commentsTask: process.env.DDB_COMMENTS_TASK_INDEX || "taskId-index",
     usersOrg: process.env.DDB_USERS_ORG_INDEX || "orgId-index",
     teamsOrg: process.env.DDB_TEAMS_ORG_INDEX || "orgId-index",
+    activityTask: process.env.DDB_ACTIVITY_TASK_INDEX || "taskId-index",
+    activityOrg: process.env.DDB_ACTIVITY_ORG_INDEX || "orgId-index",
   },
 
   s3: {

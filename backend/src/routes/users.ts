@@ -3,6 +3,7 @@ import {
   AdminCreateUserCommand,
   AdminSetUserPasswordCommand,
   AdminUpdateUserAttributesCommand,
+  AdminDisableUserCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
 import { GetCommand, PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { ddb, cognito } from "../aws";
@@ -44,7 +45,7 @@ router.get(
         ExpressionAttributeValues: { ":o": req.user!.orgId },
       })
     );
-    res.json(Items ?? []);
+    res.json((Items ?? []).filter((u) => !u.deletedAt));
   })
 );
 
@@ -214,6 +215,55 @@ router.put(
     }
 
     res.json(Attributes);
+  })
+);
+
+// DELETE /users/:id — soft-delete the profile and disable the Cognito account.
+// Org-scoped; the org admin cannot be removed.
+router.delete(
+  "/:id",
+  requireRole("manager", "admin"),
+  asyncHandler(async (req, res) => {
+    const userId = req.params.id;
+    const caller = req.user!;
+
+    const { Item: target } = await ddb.send(
+      new GetCommand({ TableName: config.tables.users, Key: { userId } })
+    );
+    if (!target || target.orgId !== caller.orgId) {
+      throw new HttpError(404, "User not found");
+    }
+    if (target.role === "admin") {
+      throw new HttpError(403, "Cannot delete the organization admin");
+    }
+    if (caller.role === "manager" && target.role !== "employee") {
+      throw new HttpError(403, "Managers can only delete employees");
+    }
+
+    await ddb.send(
+      new UpdateCommand({
+        TableName: config.tables.users,
+        Key: { userId },
+        UpdateExpression: "SET deletedAt = :now",
+        ExpressionAttributeValues: { ":now": new Date().toISOString() },
+        ConditionExpression: "attribute_exists(userId)",
+      })
+    );
+
+    if (target.email) {
+      try {
+        await cognito.send(
+          new AdminDisableUserCommand({
+            UserPoolId: config.cognito.userPoolId,
+            Username: target.email as string,
+          })
+        );
+      } catch {
+        // Cognito sync failure is non-fatal — DynamoDB is source of truth for the app
+      }
+    }
+
+    res.status(204).send();
   })
 );
 

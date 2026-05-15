@@ -1,7 +1,7 @@
 // ─── Enums ────────────────────────────────────────────────────────────────────
 export type TaskStatus   = "Todo" | "InProgress" | "InReview" | "Done";
 export type TaskPriority = "Low" | "Medium" | "High" | "Critical";
-export type Role         = "manager" | "employee";
+export type Role         = "manager" | "employee" | "admin";
 
 // ─── Core entities ────────────────────────────────────────────────────────────
 export interface User {

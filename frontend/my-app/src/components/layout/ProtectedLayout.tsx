@@ -11,6 +11,16 @@ const MANAGER_NAV = [
   { href: "/teams",      label: "Teams"      },
   { href: "/tasks",      label: "Tasks"      },
   { href: "/users",      label: "Employees"  },
+  { href: "/digest",     label: "Digest"     },
+];
+
+const ADMIN_NAV = [
+  { href: "/dashboard",  label: "Dashboard"  },
+  { href: "/projects",   label: "Projects"   },
+  { href: "/teams",      label: "Teams"      },
+  { href: "/tasks",      label: "Tasks"      },
+  { href: "/users",      label: "Users"      },
+  { href: "/digest",     label: "Digest"     },
 ];
 
 const EMPLOYEE_NAV = [
@@ -18,6 +28,7 @@ const EMPLOYEE_NAV = [
   { href: "/projects",  label: "Projects"  },
   { href: "/teams",     label: "Teams"     },
   { href: "/tasks",     label: "My Tasks"  },
+  { href: "/digest",    label: "Digest"    },
 ];
 
 export default function ProtectedLayout({ children }: { children: React.ReactNode }) {
@@ -50,7 +61,8 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
   }
 
   const isManager   = user.role === "manager";
-  const NAV         = isManager ? MANAGER_NAV : EMPLOYEE_NAV;
+  const isAdmin     = user.role === "admin";
+  const NAV         = isAdmin ? ADMIN_NAV : isManager ? MANAGER_NAV : EMPLOYEE_NAV;
   const initials    = (user.name ?? user.email).charAt(0).toUpperCase();
   const displayName = user.name ?? user.email.split("@")[0];
 
