@@ -73,7 +73,7 @@ export async function registerOrganization(
     { organizationName, adminName, adminEmail, password },
     { headers: { "Content-Type": "application/json" } },
   );
-  return res.data as { message: string; orgId: string; adminUserId: string };
+  return res.data as { message: string; orgId: string; managerUserId?: string; adminUserId?: string };
 }
 
 // Read the caller's orgId out of the current ID token (no verification — backend verifies).

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import Link from "next/link";
+import NotificationBell from "./NotificationBell";
 
 const MANAGER_NAV = [
   { href: "/dashboard",  label: "Dashboard"  },
@@ -11,15 +12,6 @@ const MANAGER_NAV = [
   { href: "/teams",      label: "Teams"      },
   { href: "/tasks",      label: "Tasks"      },
   { href: "/users",      label: "Employees"  },
-  { href: "/digest",     label: "Digest"     },
-];
-
-const ADMIN_NAV = [
-  { href: "/dashboard",  label: "Dashboard"  },
-  { href: "/projects",   label: "Projects"   },
-  { href: "/teams",      label: "Teams"      },
-  { href: "/tasks",      label: "Tasks"      },
-  { href: "/users",      label: "Users"      },
   { href: "/digest",     label: "Digest"     },
 ];
 
@@ -32,7 +24,7 @@ const EMPLOYEE_NAV = [
 ];
 
 export default function ProtectedLayout({ children }: { children: React.ReactNode }) {
-  const { user, loading, logout } = useAuth();
+  const { user, loading, logout, isManager } = useAuth();
   const router   = useRouter();
   const pathname = usePathname();
   const [profileOpen, setProfileOpen] = useState(false);
@@ -60,9 +52,7 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
     );
   }
 
-  const isManager   = user.role === "manager";
-  const isAdmin     = user.role === "admin";
-  const NAV         = isAdmin ? ADMIN_NAV : isManager ? MANAGER_NAV : EMPLOYEE_NAV;
+  const NAV         = isManager ? MANAGER_NAV : EMPLOYEE_NAV;
   const initials    = (user.name ?? user.email).charAt(0).toUpperCase();
   const displayName = user.name ?? user.email.split("@")[0];
 
@@ -123,12 +113,7 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
               />
             </div>
 
-            {/* Notification bell */}
-            <button className="p-2 rounded-full text-on-surface-variant hover:text-primary hover:bg-surface-container-high transition-all">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/>
-              </svg>
-            </button>
+            <NotificationBell />
 
             {/* Settings */}
             <button className="p-2 rounded-full text-on-surface-variant hover:text-primary hover:bg-surface-container-high transition-all">

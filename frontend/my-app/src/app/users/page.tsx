@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import ProtectedLayout from "@/components/layout/ProtectedLayout";
 import { useAuth } from "@/hooks/useAuth";
 import api from "@/lib/api";
@@ -121,32 +122,30 @@ function RowMenu({ onAssign, onDelete }: { onAssign: () => void; onDelete: () =>
 }
 
 // ── Create User Modal ─────────────────────────────────────────────────────────
-function CreateEmployeeModal({ teams, onClose, onCreated, isAdmin = false }: {
-  teams: Team[]; onClose: () => void; onCreated: (u: User) => void; isAdmin?: boolean;
+function CreateEmployeeModal({ teams, onClose, onCreated }: {
+  teams: Team[]; onClose: () => void; onCreated: (u: User) => void;
 }) {
   const [name, setName]         = useState("");
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [teamId, setTeamId]     = useState("");
-  const [role, setRole]         = useState<"employee" | "manager">("employee");
   const [error, setError]       = useState("");
   const [loading, setLoading]   = useState(false);
 
   const teamOptions = teams.map(t => ({ value: t.teamId, label: t.name }));
-  const needsTeam   = role === "employee";
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !email.trim()) { setError("Name and email are required."); return; }
     if (password.length < 8) { setError("Password must be at least 8 characters."); return; }
-    if (needsTeam && !teamId) { setError("Please select a team."); return; }
+    if (!teamId) { setError("Please select a team."); return; }
     setError(""); setLoading(true);
     try {
       const res = await api.post("/users", {
         name: name.trim(), email: email.trim(), password,
-        role,
-        teamId: needsTeam ? teamId : "",
+        role: "employee",
+        teamId,
       });
       onCreated(res.data);
     } catch (err: unknown) {
@@ -162,11 +161,9 @@ function CreateEmployeeModal({ teams, onClose, onCreated, isAdmin = false }: {
 
         <div className="flex items-center justify-between px-6 py-5 border-b border-outline-variant">
           <div>
-            <h2 className="text-sm font-semibold text-on-surface">
-              {isAdmin ? "Add user" : "Add employee"}
-            </h2>
+            <h2 className="text-sm font-semibold text-on-surface">Add employee</h2>
             <p className="text-xs text-on-surface-variant mt-0.5">
-              {isAdmin ? "Create a manager or employee. They can log in immediately." : "New employees can log in immediately with the given password."}
+              New employees can log in immediately with the given password.
             </p>
           </div>
           <button type="button" onClick={onClose}
@@ -188,25 +185,6 @@ function CreateEmployeeModal({ teams, onClose, onCreated, isAdmin = false }: {
             </div>
           )}
 
-          {/* Role selector — admin only */}
-          {isAdmin && (
-            <div>
-              <label className="block text-xs font-medium text-on-surface-variant mb-1.5">Role</label>
-              <div className="flex gap-2">
-                {(["employee", "manager"] as const).map(r => (
-                  <button key={r} type="button" onClick={() => setRole(r)}
-                    className="flex-1 py-2 rounded-lg text-sm font-medium border transition-colors capitalize"
-                    style={{
-                      background: role === r ? "rgba(255,255,255,0.07)" : "transparent",
-                      borderColor: role === r ? "#8e9192" : "#444748",
-                      color: role === r ? "#e5e2e1" : "#8e9192",
-                    }}>
-                    {r}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -238,12 +216,10 @@ function CreateEmployeeModal({ teams, onClose, onCreated, isAdmin = false }: {
             </div>
           </div>
 
-          {needsTeam && (
-            <div>
+          <div>
               <label className="block text-xs font-medium text-on-surface-variant mb-1.5">Team</label>
               <Dropdown options={[{ value: "", label: "Select a team…" }, ...teamOptions]} value={teamId} onChange={setTeamId} placeholder="Select a team…" />
-            </div>
-          )}
+          </div>
 
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={onClose}
@@ -252,7 +228,7 @@ function CreateEmployeeModal({ teams, onClose, onCreated, isAdmin = false }: {
             </button>
             <button type="submit" disabled={loading}
               className="flex-1 py-2.5 rounded-lg text-sm font-semibold bg-primary text-surface-container-lowest hover:bg-primary/90 transition-colors disabled:opacity-50">
-              {loading ? "Creating…" : isAdmin ? "Add User" : "Add Employee"}
+              {loading ? "Creating…" : "Add Employee"}
             </button>
           </div>
         </form>
@@ -353,8 +329,9 @@ function SkeletonRow() {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function EmployeesPage() {
-  const { user: me } = useAuth();
-  const isAdmin = me?.role === "admin";
+  const router = useRouter();
+  const { user: me, isManager } = useAuth();
+
   const [users, setUsers]     = useState<User[]>([]);
   const [teams, setTeams]     = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
@@ -369,12 +346,16 @@ export default function EmployeesPage() {
 
   useEffect(() => {
     if (!me) return;
+    if (!isManager) {
+      router.replace("/dashboard");
+      return;
+    }
     Promise.all([
       api.get("/users").then(r => r.data as User[]),
       api.get("/teams").then(r => r.data as Team[]),
     ]).then(([u, t]) => { setUsers(u); setTeams(t); })
       .finally(() => setLoading(false));
-  }, [me]);
+  }, [me, isManager, router]);
 
   const teamMap = Object.fromEntries(teams.map(t => [t.teamId, t.name]));
 
@@ -419,10 +400,10 @@ export default function EmployeesPage() {
       <div className="flex items-start justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-on-surface tracking-tight">
-            {isAdmin ? "Users" : "Employees"}
+            {"Employees"}
           </h1>
           <p className="text-sm text-on-surface-variant mt-1">
-            {isAdmin ? "Manage all users, roles, and team assignments across the organisation." : "Manage your organisation's employees and team assignments."}
+            {"Manage your organisation's employees and team assignments."}
           </p>
         </div>
         <button type="button" onClick={() => setShowCreate(true)}
@@ -430,7 +411,7 @@ export default function EmployeesPage() {
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
           </svg>
-          {isAdmin ? "Add User" : "Add Employee"}
+          {"Add Employee"}
         </button>
       </div>
 
@@ -456,7 +437,7 @@ export default function EmployeesPage() {
              style={{ gridTemplateColumns: "2fr 1fr 1fr 48px" }}>
           <span>User</span>
           <span>Team</span>
-          <span>{isAdmin ? "Role" : "Status"}</span>
+          <span>{"Status"}</span>
           <span />
         </div>
 
@@ -471,7 +452,7 @@ export default function EmployeesPage() {
                 <path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>
               </svg>
             </div>
-            <p className="text-sm text-on-surface font-medium">{isAdmin ? "No users found" : "No employees found"}</p>
+            <p className="text-sm text-on-surface font-medium">{"No employees found"}</p>
             <p className="text-xs text-on-surface-variant">Try adjusting your filters.</p>
           </div>
         ) : (
@@ -509,21 +490,10 @@ export default function EmployeesPage() {
 
                 {/* Role (admin view) or Status (manager view) */}
                 <div className="flex items-center gap-1.5">
-                  {isAdmin ? (
-                    <span className="text-xs px-2 py-0.5 rounded-full capitalize"
-                      style={{
-                        background: u.role === "manager" ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.04)",
-                        color: u.role === "manager" ? "#e5e2e1" : "#8e9192",
-                        border: `1px solid ${u.role === "manager" ? "#8e9192" : "#444748"}`,
-                      }}>
-                      {u.role}
-                    </span>
-                  ) : (
-                    <>
+                  <>
                       <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "#2d6e52" }} />
                       <span className="text-sm text-on-surface-variant">Active</span>
                     </>
-                  )}
                 </div>
 
                 {/* Actions */}
@@ -559,7 +529,6 @@ export default function EmployeesPage() {
       {showCreate && (
         <CreateEmployeeModal
           teams={teams}
-          isAdmin={isAdmin}
           onClose={() => setShowCreate(false)}
           onCreated={u => { setUsers(prev => [...prev, u]); setShowCreate(false); }}
         />

@@ -55,6 +55,7 @@ export interface Comment {
 export interface ActivityLog {
   logId: string;
   taskId: string;
+  userId?: string;
   type: string;
   payload: Record<string, unknown>;
   createdAt: string;

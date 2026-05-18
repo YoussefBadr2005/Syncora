@@ -8,6 +8,7 @@ import {
 import { GetCommand, PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { ddb, cognito } from "../aws";
 import { config } from "../config";
+import { isOrgOwner } from "../lib/roles";
 import { requireRole } from "../middleware/auth";
 import { asyncHandler, HttpError } from "../middleware/error";
 
@@ -50,7 +51,7 @@ router.get(
 );
 
 // POST /users — creates Cognito account + DynamoDB profile in caller's org.
-// Admin can create managers or employees. Manager can create employees only.
+// Managers create employees only (each employee belongs to exactly one team).
 router.post(
   "/",
   requireRole("manager", "admin"),
@@ -59,11 +60,8 @@ router.post(
     const caller = req.user!;
 
     if (!email || !role) throw new HttpError(400, "email and role are required");
-    if (!["manager", "employee"].includes(role)) {
-      throw new HttpError(400, "Invalid role (must be manager or employee)");
-    }
-    if (caller.role === "manager" && role !== "employee") {
-      throw new HttpError(403, "Managers can only create employees");
+    if (role !== "employee") {
+      throw new HttpError(400, "Only employees can be created here");
     }
     if (role === "employee" && !teamId) {
       throw new HttpError(400, "teamId is required for employees");
@@ -135,7 +133,7 @@ router.post(
   })
 );
 
-// PUT /users/:id — admin/manager can update profile within their org.
+// PUT /users/:id — managers can update employees within their org.
 router.put(
   "/:id",
   requireRole("manager", "admin"),
@@ -151,19 +149,14 @@ router.put(
     if (!target || target.orgId !== caller.orgId) {
       throw new HttpError(404, "User not found");
     }
-    if (target.role === "admin" && caller.sub !== target.userId) {
-      throw new HttpError(403, "Cannot modify the organization admin");
+    if (isOrgOwner(target) && caller.sub !== target.userId) {
+      throw new HttpError(403, "Cannot modify the organization manager");
     }
-    if (caller.role === "manager" && target.role !== "employee") {
+    if (target.role !== "employee" && caller.sub !== target.userId) {
       throw new HttpError(403, "Managers can only modify employees");
     }
     if (role !== undefined) {
-      if (!["manager", "employee"].includes(role)) {
-        throw new HttpError(400, "Invalid role (must be manager or employee)");
-      }
-      if (caller.role === "manager") {
-        throw new HttpError(403, "Managers cannot change roles");
-      }
+      throw new HttpError(403, "Role changes are not supported");
     }
     if (teamId !== undefined && teamId) {
       const { Item: team } = await ddb.send(
@@ -233,10 +226,10 @@ router.delete(
     if (!target || target.orgId !== caller.orgId) {
       throw new HttpError(404, "User not found");
     }
-    if (target.role === "admin") {
-      throw new HttpError(403, "Cannot delete the organization admin");
+    if (isOrgOwner(target)) {
+      throw new HttpError(403, "Cannot delete the organization manager");
     }
-    if (caller.role === "manager" && target.role !== "employee") {
+    if (target.role !== "employee") {
       throw new HttpError(403, "Managers can only delete employees");
     }
 

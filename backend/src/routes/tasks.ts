@@ -15,6 +15,8 @@ import { assertTeamMatches } from "../middleware/teamGuard";
 import { assertSameOrg } from "../middleware/orgGuard";
 import { asyncHandler, HttpError } from "../middleware/error";
 import { Task, TaskPriority, TaskStatus, TASK_PRIORITIES, TASK_STATUSES } from "../types";
+import { isManagerRole } from "../lib/roles";
+import { publishOverdueTasksMetric, secondsToClose } from "../services/metrics";
 import { recordStatusChange, recordActivity } from "../services/statusLog";
 import { publishTaskAssignment, emitMetric } from "../services/notifications";
 
@@ -113,7 +115,7 @@ router.get(
     const user = req.user!;
     const { projectId, assigneeId } = req.query as { projectId?: string; assigneeId?: string };
 
-    if (user.role === "manager" || user.role === "admin") {
+    if (isManagerRole(user.role)) {
       if (assigneeId) {
         const { Items } = await ddb.send(
           new QueryCommand({
@@ -126,7 +128,11 @@ router.get(
         return res.json(filterScope(Items ?? [], projectId, user.orgId));
       }
       const { Items } = await ddb.send(new ScanCommand({ TableName: config.tables.tasks }));
-      return res.json(filterScope(Items ?? [], projectId, user.orgId));
+      const scoped = filterScope(Items ?? [], projectId, user.orgId);
+      publishOverdueTasksMetric(user.orgId).catch((err) =>
+        console.error("[metrics] overdue publish failed", err)
+      );
+      return res.json(scoped);
     }
 
     const { Items } = await ddb.send(
@@ -137,7 +143,11 @@ router.get(
         ExpressionAttributeValues: { ":tid": user.teamId },
       })
     );
-    res.json(filterScope(Items ?? [], projectId, user.orgId));
+    const scoped = filterScope(Items ?? [], projectId, user.orgId);
+    publishOverdueTasksMetric(user.orgId).catch((err) =>
+      console.error("[metrics] overdue publish failed", err)
+    );
+    res.json(scoped);
   })
 );
 
@@ -164,7 +174,7 @@ router.put(
     if (!task || !assertSameOrg(req, task.orgId)) throw new HttpError(404, "Task not found");
 
     const user = req.user!;
-    const isManager = user.role === "manager" || user.role === "admin";
+    const isManager = isManagerRole(user.role);
 
     if (!isManager) {
       if (user.teamId !== task.teamId) throw new HttpError(403, "Forbidden");
@@ -239,7 +249,16 @@ router.put(
             payload: { fromStatus: task.status, toStatus: updated.status },
           });
           if (updated.status === "Done") {
-            await emitMetric("TasksClosed", 1, { TeamId: updated.teamId, OrgId: task.orgId });
+            const closedAt = new Date();
+            await Promise.all([
+              emitMetric("TasksClosed", 1, { TeamId: updated.teamId, OrgId: task.orgId }),
+              emitMetric(
+                "TimeToClose",
+                secondsToClose(task.createdAt, closedAt),
+                { TeamId: updated.teamId, OrgId: task.orgId },
+                "Seconds"
+              ),
+            ]);
           }
         }
       })(),
@@ -252,13 +271,6 @@ router.put(
             teamId: updated.teamId,
             orgId: task.orgId,
             assignedBy: user.sub,
-          });
-          await recordActivity({
-            taskId: updated.taskId,
-            orgId: task.orgId,
-            userId: user.sub,
-            type: "TASK_ASSIGNED",
-            payload: { assigneeId: updated.assigneeId },
           });
         }
       })(),
@@ -277,7 +289,7 @@ router.get(
     const today = new Date().toISOString().split("T")[0];
 
     let items: Record<string, unknown>[];
-    if (user.role === "manager" || user.role === "admin") {
+    if (isManagerRole(user.role)) {
       const { Items } = await ddb.send(new ScanCommand({ TableName: config.tables.tasks }));
       items = filterScope(Items ?? [], undefined, user.orgId);
     } else {
@@ -292,9 +304,11 @@ router.get(
       items = filterScope(Items ?? [], undefined, user.orgId);
     }
 
-    const dueToday = items.filter(
-      (t) => ((t.deadline as string) ?? "").split("T")[0] === today
-    );
+    const dueToday = items.filter((t) => {
+      const status = t.status as string;
+      if (status === "Done") return false;
+      return ((t.deadline as string) ?? "").split("T")[0] === today;
+    });
 
     const byAssignee = dueToday.reduce<Record<string, Record<string, unknown>[]>>(
       (acc, task) => {

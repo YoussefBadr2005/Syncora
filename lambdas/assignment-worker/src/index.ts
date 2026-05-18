@@ -14,6 +14,7 @@ interface AssignmentPayload {
   taskTitle: string;
   assigneeId: string;
   teamId: string;
+  orgId: string;
   assignedBy: string;
   assignedAt: string;
 }
@@ -35,16 +36,22 @@ export const handler = async (event: SQSEvent): Promise<void> => {
 
     console.log(`Processing assignment: task=${payload.taskId} assignee=${payload.assigneeId}`);
 
-    // 1. Write activity log entry
+    // 1. Write activity log entry (schema aligned with API ActivityLogs)
     await dynamo.send(
       new PutCommand({
         TableName: ACTIVITY_TABLE,
         Item: {
           logId: crypto.randomUUID(),
           taskId: payload.taskId,
-          type: "assignment",
-          payload,
-          createdAt: new Date().toISOString(),
+          orgId: payload.orgId,
+          userId: payload.assignedBy,
+          type: "TASK_ASSIGNED",
+          payload: {
+            assigneeId: payload.assigneeId,
+            taskTitle: payload.taskTitle,
+            teamId: payload.teamId,
+          },
+          createdAt: payload.assignedAt ?? new Date().toISOString(),
         },
       })
     );

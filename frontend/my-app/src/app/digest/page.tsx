@@ -64,6 +64,9 @@ export default function DigestPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-on-surface tracking-tight">Daily Digest</h1>
         <p className="text-sm text-on-surface-variant mt-1">Tasks due on {dateLabel}</p>
+        <p className="text-xs text-on-surface-variant/80 mt-2">
+          Assignees also receive an email digest each day at 9:00 AM (EventBridge + SNS).
+        </p>
       </div>
 
       {/* Summary card */}

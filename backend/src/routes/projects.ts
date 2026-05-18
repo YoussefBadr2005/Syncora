@@ -51,7 +51,7 @@ router.get(
   "/",
   asyncHandler(async (req, res) => {
     const user = req.user!;
-    if (user.role === "manager" || user.role === "admin") {
+    if (user.role === "manager" || user.role === "admin") { // legacy admin = manager
       // Scan + filter by org. (Projects has no orgId GSI; team membership is org-scoped
       // so this is correct, just a Scan. Volumes are small for the demo.)
       const { Items } = await ddb.send(new ScanCommand({ TableName: config.tables.projects }));

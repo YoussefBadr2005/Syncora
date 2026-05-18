@@ -73,11 +73,12 @@ function formatActivityType(type: string): string {
 
 function formatActivityMessage(log: ActivityLog): string {
   const p = log.payload as Record<string, unknown>;
+  const who = log.userId ? ` by ${String(log.userId).slice(0, 8)}…` : "";
   switch (log.type) {
     case "STATUS_CHANGED":
-      return `Moved from "${p.fromStatus}" to "${p.toStatus}"`;
+      return `Moved from "${p.fromStatus}" to "${p.toStatus}"${who}`;
     case "TASK_ASSIGNED":
-      return `Assigned to ${p.assigneeId}`;
+      return `${p.taskTitle ? `"${p.taskTitle}" — ` : ""}Assigned to ${p.assigneeId}${who}`;
     case "COMMENT_ADDED":
       return `Comment: "${p.preview ?? ""}"`;
     case "TASK_CREATED":

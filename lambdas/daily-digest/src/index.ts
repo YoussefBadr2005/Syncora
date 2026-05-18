@@ -16,6 +16,7 @@ interface Task {
   status: string;
   assigneeId: string;
   teamId: string;
+  orgId?: string;
 }
 
 interface User {

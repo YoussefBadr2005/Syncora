@@ -173,7 +173,7 @@ function SignInForm({ onSuccess }: { onSuccess: () => void }) {
   );
 }
 
-// ── Create Account form (registers an organization + its admin) ─────────────
+// ── Create Account form (registers an organization + its manager) ─────────────
 function CreateAccountForm({ onSuccess }: { onSuccess: () => void }) {
   const [orgName, setOrgName]   = useState("");
   const [name, setName]         = useState("");
@@ -211,7 +211,7 @@ function CreateAccountForm({ onSuccess }: { onSuccess: () => void }) {
     <div className="flex flex-col space-y-6">
       <div className="space-y-1">
         <h2 className="text-primary font-semibold" style={{ fontSize: 20, lineHeight: "1.4", letterSpacing: "-0.01em" }}>Register your organization</h2>
-        <p className="text-on-surface-variant" style={{ fontSize: 14, lineHeight: "1.5" }}>This creates your organization and your admin account. You will invite managers and employees from inside the app.</p>
+        <p className="text-on-surface-variant" style={{ fontSize: 14, lineHeight: "1.5" }}>This creates your organization and your manager account. You can add teams and employees from inside the app.</p>
       </div>
 
       <hr className="border-surface-variant w-full" />
@@ -230,7 +230,7 @@ function CreateAccountForm({ onSuccess }: { onSuccess: () => void }) {
         {/* Name */}
         <div className="space-y-2">
           <label className="text-on-surface block" style={{ fontSize: 12, fontWeight: 500, letterSpacing: "0.01em" }} htmlFor="reg-name">
-            Your Full Name (admin)
+            Your Full Name (manager)
           </label>
           <input id="reg-name" type="text" placeholder="Ali Hassan" value={name} onChange={e => setName(e.target.value)} required
             className="w-full bg-surface-dim border border-surface-variant rounded text-on-surface px-3 py-2 focus:outline-none focus:border-white focus:ring-0 transition-shadow placeholder:text-on-surface-variant/50"
@@ -240,9 +240,9 @@ function CreateAccountForm({ onSuccess }: { onSuccess: () => void }) {
         {/* Email */}
         <div className="space-y-2">
           <label className="text-on-surface block" style={{ fontSize: 12, fontWeight: 500, letterSpacing: "0.01em" }} htmlFor="reg-email">
-            Admin Work Email
+            Work Email
           </label>
-          <input id="reg-email" type="email" placeholder="admin@company.com" value={email} onChange={e => setEmail(e.target.value)} required
+          <input id="reg-email" type="email" placeholder="manager@company.com" value={email} onChange={e => setEmail(e.target.value)} required
             className="w-full bg-surface-dim border border-surface-variant rounded text-on-surface px-3 py-2 focus:outline-none focus:border-white focus:ring-0 transition-shadow placeholder:text-on-surface-variant/50"
             style={{ fontSize: 14, lineHeight: "1.5" }} />
         </div>

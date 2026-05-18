@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { AdminUpdateUserAttributesCommand } from "@aws-sdk/client-cognito-identity-provider";
 import {
   GetCommand,
   PutCommand,
@@ -6,7 +7,7 @@ import {
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { v4 as uuid } from "uuid";
-import { ddb } from "../aws";
+import { ddb, cognito } from "../aws";
 import { config } from "../config";
 import { requireRole } from "../middleware/auth";
 import { asyncHandler, HttpError } from "../middleware/error";
@@ -97,6 +98,28 @@ router.post(
       new GetCommand({ TableName: config.tables.users, Key: { userId } })
     );
     if (!user || user.orgId !== req.user!.orgId) throw new HttpError(404, "User not found");
+
+    await ddb.send(
+      new UpdateCommand({
+        TableName: config.tables.users,
+        Key: { userId },
+        UpdateExpression: "SET teamId = :tid",
+        ExpressionAttributeValues: { ":tid": req.params.id },
+        ConditionExpression: "attribute_exists(userId)",
+      })
+    );
+
+    try {
+      await cognito.send(
+        new AdminUpdateUserAttributesCommand({
+          UserPoolId: config.cognito.userPoolId,
+          Username: user.email as string,
+          UserAttributes: [{ Name: "custom:teamId", Value: req.params.id }],
+        })
+      );
+    } catch {
+      // non-fatal
+    }
 
     const { Attributes } = await ddb.send(
       new UpdateCommand({

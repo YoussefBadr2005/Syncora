@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import ProtectedLayout from "@/components/layout/ProtectedLayout";
@@ -131,7 +131,7 @@ function PriorityBadge({ priority }: { priority: string }) {
   );
 }
 
-export default function TasksPage() {
+function TasksPageContent() {
   const { user } = useAuth();
   const searchParams   = useSearchParams();
   const projectParam   = searchParams.get("project");
@@ -518,5 +518,23 @@ export default function TasksPage() {
       )}
 
     </ProtectedLayout>
+  );
+}
+
+function TasksPageFallback() {
+  return (
+    <ProtectedLayout>
+      <div className="flex items-center justify-center h-64">
+        <div className="w-8 h-8 rounded-full border-2 border-surface-variant border-t-primary animate-spin" />
+      </div>
+    </ProtectedLayout>
+  );
+}
+
+export default function TasksPage() {
+  return (
+    <Suspense fallback={<TasksPageFallback />}>
+      <TasksPageContent />
+    </Suspense>
   );
 }

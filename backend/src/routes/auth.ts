@@ -15,7 +15,7 @@ const router = Router();
 // POST /auth/register-organization
 // Public endpoint. Creates an Organization plus its root admin user in one flow.
 // This is the ONLY public account-creation endpoint. All subsequent users
-// (managers, employees) must be created by an authenticated admin/manager via /users.
+// (employees) must be created by an authenticated manager via /users.
 router.post(
   "/register-organization",
   asyncHandler(async (req, res) => {
@@ -41,7 +41,7 @@ router.post(
             { Name: "email",          Value: adminEmail },
             { Name: "email_verified", Value: "true" },
             { Name: "name",           Value: resolvedName },
-            { Name: "custom:role",    Value: "admin" },
+            { Name: "custom:role",    Value: "manager" },
             { Name: "custom:teamId",  Value: "" },
             { Name: "custom:orgId",   Value: orgId },
           ],
@@ -86,7 +86,7 @@ router.post(
             userId:    cognitoSub,
             email:     adminEmail,
             name:      resolvedName,
-            role:      "admin",
+            role:      "manager",
             teamId:    "",
             orgId,
             createdAt: now,
@@ -109,9 +109,9 @@ router.post(
     }
 
     res.status(201).json({
-      message: "Organization created. You can now sign in as the admin.",
+      message: "Organization created. You can now sign in as the manager.",
       orgId,
-      adminUserId: cognitoSub,
+      managerUserId: cognitoSub,
     });
   })
 );

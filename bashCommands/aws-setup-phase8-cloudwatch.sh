@@ -2,10 +2,9 @@
 # =============================================================================
 # Mini-Jira on AWS — Phase 8: CloudWatch Dashboard + Alarms
 # Creates:
-#   - Dashboard: MiniJira-Overview (Lambda errors, SQS depth, DDB consumed)
-#   - Alarm: AssignmentWorkerLambda errors → SNS digest topic
-#   - Alarm: SQS queue depth > 100 messages
-#   - Alarm: DailyDigestLambda errors
+#   - Dashboard: MiniJira-Overview (tasks created/closed, TTC, EC2 CPU, assignments)
+#   - Alarm: OverdueTasks >= threshold → SNS
+#   - Existing Lambda/SQS ops alarms
 # Idempotent: safe to re-run.
 # =============================================================================
 
@@ -23,15 +22,17 @@ export AWS_DEFAULT_REGION="$REGION"
 export AWS_PAGER=""
 
 DASHBOARD_NAME="MiniJira-Overview"
-ALARM_TOPIC_ARN="${SNS_DIGEST_TOPIC_ARN}"   # reuse digest topic for ops alerts
+CW_NAMESPACE="${CW_NAMESPACE:-MiniJira}"
+ALARM_TOPIC_ARN="${SNS_TASK_ASSIGNMENT_TOPIC_ARN:-${SNS_DIGEST_TOPIC_ARN}}"
 QUEUE_NAME="TaskAssignmentQueue"
+ASG_NAME="${ASG_NAME:-Syncora-asg}"
 
 log()  { echo -e "\n\033[1;34m>>> $1\033[0m"; }
 ok()   { echo -e "\033[1;32m✔  $1\033[0m"; }
 skip() { echo -e "\033[1;33m↺  $1\033[0m"; }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# DASHBOARD
+# DASHBOARD (spec widgets + ops metrics)
 # ─────────────────────────────────────────────────────────────────────────────
 log "Creating CloudWatch dashboard: $DASHBOARD_NAME"
 
@@ -42,13 +43,11 @@ DASHBOARD_BODY=$(cat <<JSON
       "type": "metric",
       "x": 0, "y": 0, "width": 12, "height": 6,
       "properties": {
-        "title": "Lambda Errors",
+        "title": "Tasks Created Per Day",
         "view": "timeSeries",
         "stacked": false,
         "metrics": [
-          ["AWS/Lambda","Errors","FunctionName","AssignmentWorkerLambda",{"stat":"Sum","period":300}],
-          ["AWS/Lambda","Errors","FunctionName","DailyDigestLambda",{"stat":"Sum","period":300}],
-          ["AWS/Lambda","Errors","FunctionName","ImageResizeLambda",{"stat":"Sum","period":300}]
+          ["${CW_NAMESPACE}", "TasksCreated", {"stat": "Sum", "period": 86400}]
         ],
         "region": "${REGION}"
       }
@@ -57,13 +56,12 @@ DASHBOARD_BODY=$(cat <<JSON
       "type": "metric",
       "x": 12, "y": 0, "width": 12, "height": 6,
       "properties": {
-        "title": "Lambda Invocations",
+        "title": "Tasks Closed Per Day (by Team)",
         "view": "timeSeries",
-        "stacked": false,
+        "stacked": true,
         "metrics": [
-          ["AWS/Lambda","Invocations","FunctionName","AssignmentWorkerLambda",{"stat":"Sum","period":300}],
-          ["AWS/Lambda","Invocations","FunctionName","DailyDigestLambda",{"stat":"Sum","period":300}],
-          ["AWS/Lambda","Invocations","FunctionName","ImageResizeLambda",{"stat":"Sum","period":300}]
+          ["${CW_NAMESPACE}", "TasksClosed", "TeamId", "team-frontend", {"stat": "Sum", "period": 86400}],
+          ["${CW_NAMESPACE}", "TasksClosed", "TeamId", "team-backend", {"stat": "Sum", "period": 86400}]
         ],
         "region": "${REGION}"
       }
@@ -72,12 +70,11 @@ DASHBOARD_BODY=$(cat <<JSON
       "type": "metric",
       "x": 0, "y": 6, "width": 12, "height": 6,
       "properties": {
-        "title": "SQS — TaskAssignmentQueue Depth",
+        "title": "Average Time To Close (seconds)",
         "view": "timeSeries",
         "stacked": false,
         "metrics": [
-          ["AWS/SQS","ApproximateNumberOfMessagesVisible","QueueName","${QUEUE_NAME}",{"stat":"Maximum","period":60}],
-          ["AWS/SQS","ApproximateAgeOfOldestMessage","QueueName","${QUEUE_NAME}",{"stat":"Maximum","period":60}]
+          ["${CW_NAMESPACE}", "TimeToClose", {"stat": "Average", "period": 86400}]
         ],
         "region": "${REGION}"
       }
@@ -86,12 +83,11 @@ DASHBOARD_BODY=$(cat <<JSON
       "type": "metric",
       "x": 12, "y": 6, "width": 12, "height": 6,
       "properties": {
-        "title": "Custom — Tasks Assigned per Team",
+        "title": "EC2 CPU Utilization (ASG)",
         "view": "timeSeries",
-        "stacked": true,
+        "stacked": false,
         "metrics": [
-          ["MiniJira","TasksAssigned","TeamId","team-frontend",{"stat":"Sum","period":300}],
-          ["MiniJira","TasksAssigned","TeamId","team-backend",{"stat":"Sum","period":300}]
+          ["AWS/EC2", "CPUUtilization", "AutoScalingGroupName", "${ASG_NAME}", {"stat": "Average", "period": 300}]
         ],
         "region": "${REGION}"
       }
@@ -100,13 +96,12 @@ DASHBOARD_BODY=$(cat <<JSON
       "type": "metric",
       "x": 0, "y": 12, "width": 12, "height": 6,
       "properties": {
-        "title": "Lambda Duration (ms)",
+        "title": "Tasks Assigned Per Team",
         "view": "timeSeries",
-        "stacked": false,
+        "stacked": true,
         "metrics": [
-          ["AWS/Lambda","Duration","FunctionName","AssignmentWorkerLambda",{"stat":"p99","period":300}],
-          ["AWS/Lambda","Duration","FunctionName","DailyDigestLambda",{"stat":"p99","period":300}],
-          ["AWS/Lambda","Duration","FunctionName","ImageResizeLambda",{"stat":"p99","period":300}]
+          ["${CW_NAMESPACE}", "TasksAssigned", "TeamId", "team-frontend", {"stat": "Sum", "period": 300}],
+          ["${CW_NAMESPACE}", "TasksAssigned", "TeamId", "team-backend", {"stat": "Sum", "period": 300}]
         ],
         "region": "${REGION}"
       }
@@ -115,13 +110,11 @@ DASHBOARD_BODY=$(cat <<JSON
       "type": "metric",
       "x": 12, "y": 12, "width": 12, "height": 6,
       "properties": {
-        "title": "DynamoDB Consumed Write Capacity",
+        "title": "Overdue Tasks (open, past deadline)",
         "view": "timeSeries",
         "stacked": false,
         "metrics": [
-          ["AWS/DynamoDB","ConsumedWriteCapacityUnits","TableName","Tasks",{"stat":"Sum","period":300}],
-          ["AWS/DynamoDB","ConsumedWriteCapacityUnits","TableName","ActivityLogs",{"stat":"Sum","period":300}],
-          ["AWS/DynamoDB","ConsumedWriteCapacityUnits","TableName","StatusLogs",{"stat":"Sum","period":300}]
+          ["${CW_NAMESPACE}", "OverdueTasks", {"stat": "Maximum", "period": 300}]
         ],
         "region": "${REGION}"
       }
@@ -143,7 +136,6 @@ ok "Dashboard created: $DASHBOARD_NAME"
 create_or_update_alarm() {
   local NAME=$1
   shift
-  # Check if alarm exists
   EXISTING=$(aws cloudwatch describe-alarms --alarm-names "$NAME" \
     --query 'MetricAlarms[0].AlarmName' --output text 2>/dev/null | sed 's/None//')
   if [ -n "$EXISTING" ]; then
@@ -153,42 +145,26 @@ create_or_update_alarm() {
   ok "Alarm set: $NAME"
 }
 
+log "Creating alarm: OverdueTasks threshold"
+create_or_update_alarm "OverdueTasksAlarm" \
+  --alarm-description "Overdue open tasks exceed threshold" \
+  --namespace "${CW_NAMESPACE}" \
+  --metric-name "OverdueTasks" \
+  --statistic "Maximum" \
+  --period 3600 \
+  --evaluation-periods 1 \
+  --threshold 10 \
+  --comparison-operator "GreaterThanOrEqualToThreshold" \
+  --treat-missing-data "notBreaching" \
+  --alarm-actions "$ALARM_TOPIC_ARN" \
+  --ok-actions "$ALARM_TOPIC_ARN"
+
 log "Creating alarm: AssignmentWorkerLambda errors"
 create_or_update_alarm "AssignmentWorker-Errors" \
   --alarm-description "AssignmentWorkerLambda has errors" \
   --namespace "AWS/Lambda" \
   --metric-name "Errors" \
   --dimensions "Name=FunctionName,Value=AssignmentWorkerLambda" \
-  --statistic "Sum" \
-  --period 300 \
-  --evaluation-periods 1 \
-  --threshold 1 \
-  --comparison-operator "GreaterThanOrEqualToThreshold" \
-  --treat-missing-data "notBreaching" \
-  --alarm-actions "$ALARM_TOPIC_ARN" \
-  --ok-actions "$ALARM_TOPIC_ARN"
-
-log "Creating alarm: DailyDigestLambda errors"
-create_or_update_alarm "DailyDigest-Errors" \
-  --alarm-description "DailyDigestLambda has errors" \
-  --namespace "AWS/Lambda" \
-  --metric-name "Errors" \
-  --dimensions "Name=FunctionName,Value=DailyDigestLambda" \
-  --statistic "Sum" \
-  --period 300 \
-  --evaluation-periods 1 \
-  --threshold 1 \
-  --comparison-operator "GreaterThanOrEqualToThreshold" \
-  --treat-missing-data "notBreaching" \
-  --alarm-actions "$ALARM_TOPIC_ARN" \
-  --ok-actions "$ALARM_TOPIC_ARN"
-
-log "Creating alarm: ImageResizeLambda errors"
-create_or_update_alarm "ImageResize-Errors" \
-  --alarm-description "ImageResizeLambda has errors" \
-  --namespace "AWS/Lambda" \
-  --metric-name "Errors" \
-  --dimensions "Name=FunctionName,Value=ImageResizeLambda" \
   --statistic "Sum" \
   --period 300 \
   --evaluation-periods 1 \
@@ -212,23 +188,6 @@ create_or_update_alarm "TaskAssignmentQueue-Depth" \
   --treat-missing-data "notBreaching" \
   --alarm-actions "$ALARM_TOPIC_ARN"
 
-log "Creating alarm: SQS message age (processing lag)"
-create_or_update_alarm "TaskAssignmentQueue-MessageAge" \
-  --alarm-description "SQS messages waiting more than 5 minutes — Lambda may be failing" \
-  --namespace "AWS/SQS" \
-  --metric-name "ApproximateAgeOfOldestMessage" \
-  --dimensions "Name=QueueName,Value=${QUEUE_NAME}" \
-  --statistic "Maximum" \
-  --period 60 \
-  --evaluation-periods 2 \
-  --threshold 300 \
-  --comparison-operator "GreaterThanOrEqualToThreshold" \
-  --treat-missing-data "notBreaching" \
-  --alarm-actions "$ALARM_TOPIC_ARN"
-
-# ─────────────────────────────────────────────────────────────────────────────
-# SUMMARY
-# ─────────────────────────────────────────────────────────────────────────────
 echo ""
 echo "============================================================"
 echo "  Phase 8 Complete — CloudWatch Dashboard + Alarms"
@@ -236,18 +195,5 @@ echo "============================================================"
 echo "  Dashboard: $DASHBOARD_NAME"
 echo "    https://console.aws.amazon.com/cloudwatch/home?region=${REGION}#dashboards:name=${DASHBOARD_NAME}"
 echo ""
-echo "  Alarms:"
-aws cloudwatch describe-alarms \
-  --alarm-names \
-    "AssignmentWorker-Errors" \
-    "DailyDigest-Errors" \
-    "ImageResize-Errors" \
-    "TaskAssignmentQueue-Depth" \
-    "TaskAssignmentQueue-MessageAge" \
-  --query 'MetricAlarms[].[AlarmName,StateValue]' \
-  --output table
-echo ""
 echo "  Alarm notifications → $ALARM_TOPIC_ARN"
-echo "============================================================"
-echo "  Next step: Phase 9 — ALB + Auto Scaling Group + CloudFront"
 echo "============================================================"

@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { signIn, signOut, getIdToken, parseTokenPayload } from "@/lib/auth";
+import { isManagerRole } from "@/lib/roles";
 import type { User, Role } from "@/types";
 
 interface AuthContextValue {
@@ -54,7 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading: initializing || loading,
       login,
       logout,
-      isManager: user?.role === "manager",
+      isManager: isManagerRole(user?.role),
     }}>
       {children}
     </AuthContext.Provider>

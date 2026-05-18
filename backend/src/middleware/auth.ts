@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { CognitoJwtVerifier } from "aws-jwt-verify";
 import { config } from "../config";
+import { isManagerRole } from "../lib/roles";
 import { Role } from "../types";
 
 const verifier = CognitoJwtVerifier.create({
@@ -35,7 +36,11 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
 export function requireRole(...roles: Role[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    if (!roles.includes(req.user.role)) {
+    const allowed = roles.some((r) => {
+      if (r === "manager" || r === "admin") return isManagerRole(req.user!.role);
+      return req.user!.role === r;
+    });
+    if (!allowed) {
       return res.status(403).json({ error: "Forbidden: insufficient role" });
     }
     return next();
