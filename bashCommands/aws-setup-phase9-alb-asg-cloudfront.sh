@@ -186,7 +186,7 @@ DDB_STATUS_LOGS_TABLE=StatusLogs
 DDB_TEAMS_TABLE=Teams
 S3_ORIGINALS_BUCKET=${S3_ORIGINALS_BUCKET}
 S3_RESIZED_BUCKET=${S3_RESIZED_BUCKET}
-SNS_TASK_ASSIGNMENT_TOPIC_ARN=${SNS_TASK_ASSIGNMENT_TOPIC_ARN}
+SNS_TASK_ASSIGNMENT_TOPIC=${SNS_TASK_ASSIGNMENT_TOPIC_ARN}
 CLOUDFRONT_URL=__CLOUDFRONT_PLACEHOLDER__"
 
 USER_DATA=$(cat <<'USERDATA_EOF'
@@ -205,7 +205,7 @@ npm install -g pm2
 # ── Clone repo ────────────────────────────────────────────────────────────────
 mkdir -p /opt/app
 cd /opt/app
-git clone https://github.com/PLACEHOLDER_REPO/mini-jira.git . || true
+git clone https://github.com/YoussefBadr2005/Syncora.git . || true
 
 # ── Write .env ────────────────────────────────────────────────────────────────
 cat > /opt/app/backend/.env << 'ENVEOF'
