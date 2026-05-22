@@ -1,13 +1,48 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, ScanCommand } from "@aws-sdk/lib-dynamodb";
 import { SNSClient, PublishCommand } from "@aws-sdk/client-sns";
+import { CloudWatchClient, PutMetricDataCommand } from "@aws-sdk/client-cloudwatch";
 
 const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const sns = new SNSClient({});
+const cw = new CloudWatchClient({});
 
 const TASKS_TABLE = process.env.DDB_TASKS_TABLE ?? "Tasks";
 const USERS_TABLE = process.env.DDB_USERS_TABLE ?? "Users";
 const DIGEST_TOPIC_ARN = process.env.SNS_DIGEST_TOPIC_ARN!;
+const CW_NAMESPACE = process.env.CW_NAMESPACE ?? "MiniJira";
+
+// Scan for tasks past their deadline and not Done, and publish an OverdueTasks
+// custom metric (total + per team) so a CloudWatch alarm can notify ops via SNS.
+async function emitOverdueMetric(today: string): Promise<void> {
+  const { Items } = await dynamo.send(
+    new ScanCommand({
+      TableName: TASKS_TABLE,
+      FilterExpression: "deadline <> :empty AND deadline < :today AND #s <> :done",
+      ExpressionAttributeNames: { "#s": "status" },
+      ExpressionAttributeValues: { ":empty": "", ":today": today, ":done": "Done" },
+    })
+  );
+  const overdue = (Items as Task[]) ?? [];
+  const perTeam = overdue.reduce<Record<string, number>>((acc, t) => {
+    acc[t.teamId] = (acc[t.teamId] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  const metricData = [
+    { MetricName: "OverdueTasks", Value: overdue.length, Unit: "Count" as const, Timestamp: new Date() },
+    ...Object.entries(perTeam).map(([teamId, count]) => ({
+      MetricName: "OverdueTasks",
+      Dimensions: [{ Name: "TeamId", Value: teamId }],
+      Value: count,
+      Unit: "Count" as const,
+      Timestamp: new Date(),
+    })),
+  ];
+
+  await cw.send(new PutMetricDataCommand({ Namespace: CW_NAMESPACE, MetricData: metricData }));
+  console.log(`OverdueTasks metric published: ${overdue.length} total`);
+}
 
 interface Task {
   taskId: string;
@@ -27,6 +62,13 @@ interface User {
 export const handler = async (): Promise<void> => {
   const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
   console.log(`Daily digest for: ${today}`);
+
+  // Publish the OverdueTasks metric first so it runs regardless of today's load.
+  try {
+    await emitOverdueMetric(today);
+  } catch (err) {
+    console.error("Failed to emit OverdueTasks metric", err);
+  }
 
   // Scan for tasks due today that are not yet Done
   const { Items: tasks } = await dynamo.send(

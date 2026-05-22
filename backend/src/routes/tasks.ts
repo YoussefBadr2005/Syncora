@@ -240,6 +240,17 @@ router.put(
           });
           if (updated.status === "Done") {
             await emitMetric("TasksClosed", 1, { TeamId: updated.teamId, OrgId: task.orgId });
+            if (task.createdAt) {
+              const hoursToClose = (Date.now() - new Date(task.createdAt).getTime()) / 3_600_000;
+              if (hoursToClose >= 0) {
+                await emitMetric(
+                  "TaskTimeToClose",
+                  Number(hoursToClose.toFixed(2)),
+                  { TeamId: updated.teamId, OrgId: task.orgId },
+                  "None"
+                );
+              }
+            }
           }
         }
       })(),

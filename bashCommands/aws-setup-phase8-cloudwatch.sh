@@ -129,6 +129,28 @@ DASHBOARD_BODY=$(cat <<JSON
           ["...","TableName","StatusLogs",{"stat":"Sum","period":300}]
         ]
       }
+    },
+    {
+      "type": "metric", "x": 0, "y": 18, "width": 12, "height": 6,
+      "properties": {
+        "title": "Avg Time to Close (hours, per team)",
+        "view": "timeSeries", "stacked": false, "region": "${REGION}",
+        "metrics": [
+          [ { "expression": "SEARCH('{MiniJira,OrgId,TeamId} MetricName=\"TaskTimeToClose\"', 'Average', 86400)", "id": "ttc", "region": "${REGION}", "label": "avg hours" } ]
+        ],
+        "yAxis": { "left": { "min": 0 } }
+      }
+    },
+    {
+      "type": "metric", "x": 12, "y": 18, "width": 12, "height": 6,
+      "properties": {
+        "title": "Overdue Tasks (total)",
+        "view": "timeSeries", "stacked": false, "region": "${REGION}",
+        "metrics": [
+          [ "MiniJira", "OverdueTasks", { "stat": "Maximum", "period": 86400, "label": "overdue" } ]
+        ],
+        "yAxis": { "left": { "min": 0 } }
+      }
     }
   ]
 }
@@ -229,6 +251,22 @@ create_or_update_alarm "TaskAssignmentQueue-MessageAge" \
   --comparison-operator "GreaterThanOrEqualToThreshold" \
   --treat-missing-data "notBreaching" \
   --alarm-actions "$ALARM_TOPIC_ARN"
+
+# Rubric's example alarm: overdue tasks exceeding a threshold -> SNS.
+# Reads the MiniJira/OverdueTasks metric emitted by the daily-digest Lambda.
+log "Creating alarm: Overdue tasks above threshold"
+create_or_update_alarm "Overdue-Tasks-High" \
+  --alarm-description "Overdue tasks (deadline passed, not Done) exceed threshold" \
+  --namespace "MiniJira" \
+  --metric-name "OverdueTasks" \
+  --statistic "Maximum" \
+  --period 86400 \
+  --evaluation-periods 1 \
+  --threshold 5 \
+  --comparison-operator "GreaterThanThreshold" \
+  --treat-missing-data "ignore" \
+  --alarm-actions "$ALARM_TOPIC_ARN" \
+  --ok-actions "$ALARM_TOPIC_ARN"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SUMMARY
