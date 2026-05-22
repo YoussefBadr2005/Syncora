@@ -6,6 +6,7 @@ import ProtectedLayout from "@/components/layout/ProtectedLayout";
 import { useAuth } from "@/hooks/useAuth";
 import api from "@/lib/api";
 import type { Project, Team, Task } from "@/types";
+import { useProjectVisibility, scopeProjects } from "@/lib/hooks/useProjectVisibility";
 
 const STATUS_CONFIG = {
   "To Do":       { dot: "#6b7280", bg: "rgba(107,114,128,0.10)", text: "#8a8f96" },
@@ -151,6 +152,9 @@ function StatusBreakdown({ tasks }: { tasks: Task[] }) {
 export default function ProjectsPage() {
   const { user } = useAuth();
   const isManager = user?.role === "manager";
+  const canScope = user?.role === "manager" || user?.role === "admin";
+  const currentUserSub = user?.userId;
+  const { scope, setScope } = useProjectVisibility();
 
   const [projects,  setProjects]  = useState<Project[]>([]);
   const [teams,     setTeams]     = useState<Team[]>([]);
@@ -191,14 +195,15 @@ export default function ProjectsPage() {
   const teamMap = Object.fromEntries(teams.map(t => [t.teamId, t.name]));
   const teamOptions = ["All", ...teams.map(t => t.name)];
 
-  const filtered = projects.filter(p => {
+  const scopedProjects = canScope ? scopeProjects(projects, scope, currentUserSub) : projects;
+  const filtered = scopedProjects.filter(p => {
     if (teamFilter !== "All" && teamMap[p.teamId] !== teamFilter) return false;
     if (search && !p.name.toLowerCase().includes(search.toLowerCase()) &&
         !p.description?.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
 
-  const hasFilters = teamFilter !== "All" || !!search;
+  const hasFilters = teamFilter !== "All" || !!search || (canScope && scope === "mine");
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault(); setCreateErr("");
@@ -289,12 +294,40 @@ export default function ProjectsPage() {
             style={{ width: 220 }} />
         </div>
 
+        {canScope && (
+          <div className="flex items-center rounded-lg border border-outline-variant overflow-hidden" style={{ background: "rgba(255,255,255,0.03)" }}>
+            <button
+              type="button"
+              onClick={() => setScope("all")}
+              className="px-3 py-2 text-sm transition-colors"
+              style={{
+                background: scope === "all" ? "rgba(255,255,255,0.06)" : "transparent",
+                color: scope === "all" ? "#e5e2e1" : "#8e9192",
+                fontWeight: scope === "all" ? 500 : 400,
+                borderRight: "1px solid #444748",
+              }}>
+              All projects
+            </button>
+            <button
+              type="button"
+              onClick={() => setScope("mine")}
+              className="px-3 py-2 text-sm transition-colors"
+              style={{
+                background: scope === "mine" ? "rgba(255,255,255,0.06)" : "transparent",
+                color: scope === "mine" ? "#e5e2e1" : "#8e9192",
+                fontWeight: scope === "mine" ? 500 : 400,
+              }}>
+              Created by me
+            </button>
+          </div>
+        )}
+
         {teams.length > 0 && (
           <FilterDropdown options={teamOptions} value={teamFilter} onChange={setTeamFilter} label="Team" />
         )}
 
         {hasFilters && (
-          <button type="button" onClick={() => { setTeamFilter("All"); setSearch(""); }}
+          <button type="button" onClick={() => { setTeamFilter("All"); setSearch(""); if (canScope) setScope("all"); }}
             className="text-xs font-medium px-3 py-2 rounded-lg border border-outline-variant text-on-surface-variant hover:text-on-surface hover:border-outline transition-colors">
             Clear
           </button>
@@ -319,7 +352,7 @@ export default function ProjectsPage() {
             }
           </div>
           {hasFilters ? (
-            <button type="button" onClick={() => { setTeamFilter("All"); setSearch(""); }}
+            <button type="button" onClick={() => { setTeamFilter("All"); setSearch(""); if (canScope) setScope("all"); }}
               className="px-4 py-2 rounded-lg text-sm font-semibold bg-primary text-surface-container-lowest hover:bg-primary/90 transition-colors">
               Clear filters
             </button>
@@ -343,7 +376,7 @@ export default function ProjectsPage() {
             const isDeleting = deletingId === p.projectId;
 
             return (
-              <Link key={p.projectId} href={`/projects/${p.projectId}`}
+              <Link key={p.projectId} href={`/board?project=${p.projectId}`}
                 className="group bg-surface-container rounded-xl border border-outline-variant hover:border-outline transition-colors flex flex-col"
                 style={{ opacity: isDeleting ? 0.5 : 1 }}>
 

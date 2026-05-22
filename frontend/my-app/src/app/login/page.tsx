@@ -440,7 +440,7 @@ export default function AuthPage() {
           {/* Animated form content */}
           <AnimatedPanel
             tab={tab}
-            onSignInSuccess={() => router.replace("/dashboard")}
+            onSignInSuccess={() => router.replace("/board")}
             onRegisterSuccess={() => switchTo("signin")}
           />
         </div>

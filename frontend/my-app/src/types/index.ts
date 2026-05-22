@@ -24,6 +24,7 @@ export interface Project {
   name: string;
   description?: string;
   teamId: string;
+  createdBy?: string;
   createdAt: string;
   updatedAt: string;
 }
