@@ -2,11 +2,23 @@
 # =============================================================================
 # Mini-Jira on AWS — Phase 8: CloudWatch Dashboard + Alarms
 # Creates:
-#   - Dashboard: MiniJira-Overview (Lambda errors, SQS depth, DDB consumed)
-#   - Alarm: AssignmentWorkerLambda errors → SNS digest topic
+#   - Dashboard: MiniJira-Overview with rubric widgets:
+#       Tasks Created/day (per team), Tasks Closed/day (per team),
+#       EC2 CPU Utilization (ASG), Tasks Assigned per team,
+#       Lambda errors, SQS depth/age, DynamoDB write capacity
+#   - Alarm: AssignmentWorkerLambda errors → SNS ops topic
 #   - Alarm: SQS queue depth > 100 messages
 #   - Alarm: DailyDigestLambda errors
 # Idempotent: safe to re-run.
+#
+# NOTE: task-level widgets read custom metrics in the "MiniJira" namespace
+# emitted by the backend (TasksCreated/TasksClosed, dims TeamId+OrgId) and the
+# assignment-worker Lambda (TasksAssigned, dim TeamId). They use SEARCH() so
+# real (UUID) team ids appear automatically. "Average time-to-close" is NOT yet
+# emitted by the backend — add an emitMetric("TaskTimeToClose", ...) on close
+# and a widget for it to fully satisfy the rubric.
+# Live alarms publish to OpsAlarmTopic; this script uses SNS_DIGEST_TOPIC_ARN
+# by default — set ALARM_TOPIC_ARN to your ops topic if you created one.
 # =============================================================================
 
 set -euo pipefail
@@ -39,91 +51,83 @@ DASHBOARD_BODY=$(cat <<JSON
 {
   "widgets": [
     {
-      "type": "metric",
-      "x": 0, "y": 0, "width": 12, "height": 6,
+      "type": "metric", "x": 0, "y": 0, "width": 12, "height": 6,
+      "properties": {
+        "title": "Tasks Created per day (per team)",
+        "view": "timeSeries", "stacked": true, "region": "${REGION}",
+        "metrics": [
+          [ { "expression": "SEARCH('{MiniJira,OrgId,TeamId} MetricName=\"TasksCreated\"', 'Sum', 86400)", "id": "created", "region": "${REGION}", "label": "Created" } ]
+        ],
+        "yAxis": { "left": { "min": 0 } }
+      }
+    },
+    {
+      "type": "metric", "x": 12, "y": 0, "width": 12, "height": 6,
+      "properties": {
+        "title": "Tasks Closed per day (per team)",
+        "view": "timeSeries", "stacked": true, "region": "${REGION}",
+        "metrics": [
+          [ { "expression": "SEARCH('{MiniJira,OrgId,TeamId} MetricName=\"TasksClosed\"', 'Sum', 86400)", "id": "closed", "region": "${REGION}", "label": "Closed" } ]
+        ],
+        "yAxis": { "left": { "min": 0 } }
+      }
+    },
+    {
+      "type": "metric", "x": 0, "y": 6, "width": 12, "height": 6,
+      "properties": {
+        "title": "EC2 CPU Utilization (ASG)",
+        "view": "timeSeries", "stacked": false, "region": "${REGION}",
+        "metrics": [
+          [ "AWS/EC2", "CPUUtilization", "AutoScalingGroupName", "Syncora-asg", { "stat": "Average", "period": 300, "label": "avg CPU %" } ],
+          [ "...", { "stat": "Maximum", "period": 300, "label": "max CPU %" } ]
+        ],
+        "yAxis": { "left": { "min": 0, "max": 100 } }
+      }
+    },
+    {
+      "type": "metric", "x": 12, "y": 6, "width": 12, "height": 6,
+      "properties": {
+        "title": "Tasks Assigned per team",
+        "view": "timeSeries", "stacked": true, "region": "${REGION}",
+        "metrics": [
+          [ { "expression": "SEARCH('{MiniJira,TeamId} MetricName=\"TasksAssigned\"', 'Sum', 86400)", "id": "assigned", "region": "${REGION}", "label": "Assigned" } ]
+        ],
+        "yAxis": { "left": { "min": 0 } }
+      }
+    },
+    {
+      "type": "metric", "x": 0, "y": 12, "width": 8, "height": 6,
       "properties": {
         "title": "Lambda Errors",
-        "view": "timeSeries",
-        "stacked": false,
+        "view": "timeSeries", "stacked": false, "region": "${REGION}",
         "metrics": [
           ["AWS/Lambda","Errors","FunctionName","AssignmentWorkerLambda",{"stat":"Sum","period":300}],
-          ["AWS/Lambda","Errors","FunctionName","DailyDigestLambda",{"stat":"Sum","period":300}],
-          ["AWS/Lambda","Errors","FunctionName","ImageResizeLambda",{"stat":"Sum","period":300}]
-        ],
-        "region": "${REGION}"
+          ["...","FunctionName","DailyDigestLambda",{"stat":"Sum","period":300}],
+          ["...","FunctionName","ImageResizeLambda",{"stat":"Sum","period":300}]
+        ]
       }
     },
     {
-      "type": "metric",
-      "x": 12, "y": 0, "width": 12, "height": 6,
+      "type": "metric", "x": 8, "y": 12, "width": 8, "height": 6,
       "properties": {
-        "title": "Lambda Invocations",
-        "view": "timeSeries",
-        "stacked": false,
+        "title": "SQS — TaskAssignmentQueue",
+        "view": "timeSeries", "stacked": false, "region": "${REGION}",
         "metrics": [
-          ["AWS/Lambda","Invocations","FunctionName","AssignmentWorkerLambda",{"stat":"Sum","period":300}],
-          ["AWS/Lambda","Invocations","FunctionName","DailyDigestLambda",{"stat":"Sum","period":300}],
-          ["AWS/Lambda","Invocations","FunctionName","ImageResizeLambda",{"stat":"Sum","period":300}]
-        ],
-        "region": "${REGION}"
+          ["AWS/SQS","ApproximateNumberOfMessagesVisible","QueueName","${QUEUE_NAME}",{"stat":"Maximum","period":60,"label":"depth"}],
+          ["AWS/SQS","ApproximateAgeOfOldestMessage","QueueName","${QUEUE_NAME}",{"stat":"Maximum","period":60,"label":"oldest age (s)"}]
+        ]
       }
     },
     {
-      "type": "metric",
-      "x": 0, "y": 6, "width": 12, "height": 6,
-      "properties": {
-        "title": "SQS — TaskAssignmentQueue Depth",
-        "view": "timeSeries",
-        "stacked": false,
-        "metrics": [
-          ["AWS/SQS","ApproximateNumberOfMessagesVisible","QueueName","${QUEUE_NAME}",{"stat":"Maximum","period":60}],
-          ["AWS/SQS","ApproximateAgeOfOldestMessage","QueueName","${QUEUE_NAME}",{"stat":"Maximum","period":60}]
-        ],
-        "region": "${REGION}"
-      }
-    },
-    {
-      "type": "metric",
-      "x": 12, "y": 6, "width": 12, "height": 6,
-      "properties": {
-        "title": "Custom — Tasks Assigned per Team",
-        "view": "timeSeries",
-        "stacked": true,
-        "metrics": [
-          ["MiniJira","TasksAssigned","TeamId","team-frontend",{"stat":"Sum","period":300}],
-          ["MiniJira","TasksAssigned","TeamId","team-backend",{"stat":"Sum","period":300}]
-        ],
-        "region": "${REGION}"
-      }
-    },
-    {
-      "type": "metric",
-      "x": 0, "y": 12, "width": 12, "height": 6,
-      "properties": {
-        "title": "Lambda Duration (ms)",
-        "view": "timeSeries",
-        "stacked": false,
-        "metrics": [
-          ["AWS/Lambda","Duration","FunctionName","AssignmentWorkerLambda",{"stat":"p99","period":300}],
-          ["AWS/Lambda","Duration","FunctionName","DailyDigestLambda",{"stat":"p99","period":300}],
-          ["AWS/Lambda","Duration","FunctionName","ImageResizeLambda",{"stat":"p99","period":300}]
-        ],
-        "region": "${REGION}"
-      }
-    },
-    {
-      "type": "metric",
-      "x": 12, "y": 12, "width": 12, "height": 6,
+      "type": "metric", "x": 16, "y": 12, "width": 8, "height": 6,
       "properties": {
         "title": "DynamoDB Consumed Write Capacity",
-        "view": "timeSeries",
-        "stacked": false,
+        "view": "timeSeries", "stacked": false, "region": "${REGION}",
         "metrics": [
           ["AWS/DynamoDB","ConsumedWriteCapacityUnits","TableName","Tasks",{"stat":"Sum","period":300}],
-          ["AWS/DynamoDB","ConsumedWriteCapacityUnits","TableName","ActivityLogs",{"stat":"Sum","period":300}],
-          ["AWS/DynamoDB","ConsumedWriteCapacityUnits","TableName","StatusLogs",{"stat":"Sum","period":300}]
-        ],
-        "region": "${REGION}"
+          ["...","TableName","ActivityLogs",{"stat":"Sum","period":300}],
+          ["...","TableName","StatusLogs",{"stat":"Sum","period":300}]
+        ]
       }
     }
   ]
