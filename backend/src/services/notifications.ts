@@ -24,7 +24,12 @@ export async function publishTaskAssignment(payload: {
   );
 }
 
-export async function emitMetric(name: string, value: number, dims: Record<string, string> = {}) {
+export async function emitMetric(
+  name: string,
+  value: number,
+  dims: Record<string, string> = {},
+  unit: "Count" | "None" | "Seconds" | "Milliseconds" = "Count"
+) {
   try {
     await cw.send(
       new PutMetricDataCommand({
@@ -33,7 +38,7 @@ export async function emitMetric(name: string, value: number, dims: Record<strin
           {
             MetricName: name,
             Value: value,
-            Unit: "Count",
+            Unit: unit,
             Dimensions: Object.entries(dims).map(([Name, Value]) => ({ Name, Value })),
           },
         ],

@@ -3,12 +3,23 @@
 # Mini-Jira on AWS — Phase 9: ALB + Launch Template + Auto Scaling Group + CloudFront
 # Creates:
 #   - Application Load Balancer (public, across 2 AZs)
-#   - ALB Target Group (HTTP 3000, health check /api/health)
-#   - ALB Listener (HTTP:80)
-#   - EC2 Launch Template (Node 20, pulls repo, runs backend via PM2)
-#   - Auto Scaling Group (min 1, max 3, desired 1) in private subnets
+#   - ALB Target Group  ${PROJECT}-tg          (HTTP 3000, health /api/health)  -> backend
+#   - ALB Target Group  ${PROJECT}-frontend-tg (HTTP 3001, health /login)       -> frontend
+#   - SG ingress: ALB -> EC2 on 3001 (3000 is opened in phase 1-2)
+#   - ALB Listener (HTTP:80): rule /api,/api/* -> backend ; default -> frontend
+#   - EC2 Launch Template + Auto Scaling Group (min 1, max 3) in private subnets
 #   - CloudFront distribution pointing to ALB origin
 # Idempotent: safe to re-run.
+#
+# FRONTEND DEPLOYMENT NOTE:
+#   The app runs BOTH tiers on each EC2 box — Express backend on :3000 and the
+#   Next.js (v16, needs Node >=20.9) frontend on :3001 — fronted by the ALB which
+#   path-routes /api/* to the backend and everything else to the frontend.
+#   Because the GitHub repo is PRIVATE (instances can't clone it on boot) and an
+#   on-boot `next build` is slow on t2.micro, instances are launched from a GOLDEN
+#   AMI baked from a fully-configured box (backend + frontend + Node 20 + pm2
+#   resurrection). Point AMI_ID below at that golden AMI. The user-data here only
+#   bootstraps the backend and is the fallback for building the base image.
 # =============================================================================
 
 set -euo pipefail
@@ -123,6 +134,41 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
+# FRONTEND TARGET GROUP (Next.js on :3001) + open EC2 SG for 3001
+# ─────────────────────────────────────────────────────────────────────────────
+FE_TG_NAME="${PROJECT}-frontend-tg"
+log "Creating frontend target group: $FE_TG_NAME"
+FE_TG_ARN=$(find_tg_by_name "$FE_TG_NAME")
+if [ -z "$FE_TG_ARN" ]; then
+  FE_TG_ARN=$(aws elbv2 create-target-group \
+    --name "$FE_TG_NAME" \
+    --protocol HTTP \
+    --port 3001 \
+    --vpc-id "$VPC_ID" \
+    --target-type instance \
+    --health-check-protocol HTTP \
+    --health-check-path "/login" \
+    --health-check-interval-seconds 10 \
+    --health-check-timeout-seconds 5 \
+    --healthy-threshold-count 2 \
+    --unhealthy-threshold-count 3 \
+    --matcher HttpCode=200 \
+    --query 'TargetGroups[0].TargetGroupArn' \
+    --output text)
+  ok "Frontend target group created: $FE_TG_ARN"
+else
+  skip "Frontend target group exists: $FE_TG_ARN"
+fi
+
+# ALB -> EC2 on 3001 (3000 opened in phase 1-2). Duplicate add is harmless.
+if aws ec2 authorize-security-group-ingress --group-id "$SG_EC2" \
+     --protocol tcp --port 3001 --source-group "$SG_ALB" >/dev/null 2>&1; then
+  ok "SG_EC2 ingress 3001 from SG_ALB added"
+else
+  skip "SG_EC2 ingress 3001 already present"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
 # APPLICATION LOAD BALANCER
 # ─────────────────────────────────────────────────────────────────────────────
 log "Creating ALB: $ALB_NAME"
@@ -167,6 +213,29 @@ if [ -z "$EXISTING_LISTENER" ]; then
 else
   skip "Listener exists: $EXISTING_LISTENER"
 fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LISTENER PATH ROUTING: /api,/api/* -> backend ; default -> frontend
+# ─────────────────────────────────────────────────────────────────────────────
+log "Configuring listener path routing..."
+LISTENER_ARN=$(aws elbv2 describe-listeners \
+  --load-balancer-arn "$ALB_ARN" \
+  --query "Listeners[?Port==\`80\`].ListenerArn | [0]" --output text)
+
+API_RULE=$(aws elbv2 describe-rules --listener-arn "$LISTENER_ARN" \
+  --query "Rules[?Priority=='10'].RuleArn | [0]" --output text 2>/dev/null | sed 's/None//')
+if [ -z "$API_RULE" ]; then
+  aws elbv2 create-rule --listener-arn "$LISTENER_ARN" --priority 10 \
+    --conditions '[{"Field":"path-pattern","PathPatternConfig":{"Values":["/api","/api/*"]}}]' \
+    --actions "[{\"Type\":\"forward\",\"TargetGroupArn\":\"$TG_ARN\"}]" >/dev/null
+  ok "Rule added (priority 10): /api,/api/* → backend"
+else
+  skip "Path rule (priority 10) exists"
+fi
+
+aws elbv2 modify-listener --listener-arn "$LISTENER_ARN" \
+  --default-actions "[{\"Type\":\"forward\",\"TargetGroupArn\":\"$FE_TG_ARN\"}]" >/dev/null
+ok "Listener default → frontend target group"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # USER DATA SCRIPT
@@ -307,7 +376,7 @@ if [ -z "$EXISTING_ASG" ]; then
     --max-size 3 \
     --desired-capacity 1 \
     --vpc-zone-identifier "${PRIVATE_SUBNET_A},${PRIVATE_SUBNET_B}" \
-    --target-group-arns "$TG_ARN" \
+    --target-group-arns "$TG_ARN" "$FE_TG_ARN" \
     --health-check-type ELB \
     --health-check-grace-period 120 \
     --tags \
@@ -321,6 +390,11 @@ else
     --launch-template "LaunchTemplateId=${LT_ID},Version=\$Default"
   skip "ASG updated: $ASG_NAME"
 fi
+
+# Ensure BOTH target groups are attached to the ASG (idempotent)
+aws autoscaling attach-load-balancer-target-groups \
+  --auto-scaling-group-name "$ASG_NAME" \
+  --target-group-arns "$TG_ARN" "$FE_TG_ARN" >/dev/null 2>&1 || true
 
 # ── Target tracking scaling policy (CPU) ──────────────────────────────────────
 log "Setting CPU target-tracking scaling policy..."
