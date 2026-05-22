@@ -151,7 +151,7 @@ function StatusBreakdown({ tasks }: { tasks: Task[] }) {
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function ProjectsPage() {
   const { user } = useAuth();
-  const isManager = user?.role === "manager";
+  const isManager = user?.role === "manager" || user?.role === "admin";
   const canScope = user?.role === "manager" || user?.role === "admin";
   const currentUserSub = user?.userId;
   const { scope, setScope } = useProjectVisibility();

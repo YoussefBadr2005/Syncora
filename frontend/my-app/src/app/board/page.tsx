@@ -52,7 +52,7 @@ function BoardPageInner() {
 
   const load = useCallback(() => {
     if (!user) return;
-    const isManager = user.role === "manager";
+    const isManager = user.role === "manager" || user.role === "admin";
     Promise.all([
       api.get("/tasks").then(r => r.data as Task[]),
       api.get("/projects").then(r => r.data as Project[]),
@@ -108,7 +108,7 @@ function BoardPageInner() {
           </p>
         </div>
 
-        {user?.role === "manager" && (
+        {(user?.role === "manager" || user?.role === "admin") && (
           <button type="button"
             onClick={() => router.push("/board?task=new", { scroll: false })}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-primary text-surface-container-lowest hover:bg-primary/90 transition-colors">

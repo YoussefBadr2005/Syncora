@@ -8,6 +8,7 @@ import { assertSameOrg } from "../middleware/orgGuard";
 import { requireRole } from "../middleware/auth";
 import { getTaskById } from "./tasks";
 import { getUploadUrl, getDownloadUrl, deleteObject } from "../services/images";
+import { recordActivity } from "../services/statusLog";
 
 const router = Router({ mergeParams: true });
 
@@ -21,6 +22,7 @@ router.post(
     const { filename, contentType } = req.body ?? {};
     if (!filename) throw new HttpError(400, "filename required");
 
+    const hadImage = !!task.imageKey;
     const { url, key } = await getUploadUrl(task.taskId, filename, contentType);
 
     await ddb.send(
@@ -35,6 +37,14 @@ router.post(
         },
       })
     );
+
+    await recordActivity({
+      taskId: task.taskId,
+      orgId: task.orgId,
+      userId: req.user!.sub,
+      type: hadImage ? "IMAGE_REPLACED" : "IMAGE_ATTACHED",
+      payload: { filename },
+    }).catch(() => undefined);
 
     res.json({ uploadUrl: url, key });
   })
@@ -79,6 +89,14 @@ router.delete(
         ExpressionAttributeValues: { ":u": new Date().toISOString() },
       })
     );
+
+    await recordActivity({
+      taskId: task.taskId,
+      orgId: task.orgId,
+      userId: req.user!.sub,
+      type: "IMAGE_REMOVED",
+      payload: {},
+    }).catch(() => undefined);
 
     res.status(204).send();
   })

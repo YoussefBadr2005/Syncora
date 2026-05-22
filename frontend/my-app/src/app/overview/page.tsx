@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import ProtectedLayout from "@/components/layout/ProtectedLayout";
 import EmptyState from "@/components/ui/EmptyState";
 import { useAuth } from "@/hooks/useAuth";
+import { useOrg } from "@/hooks/useOrg";
 import api from "@/lib/api";
 import type { Task, Team } from "@/types";
 
@@ -42,6 +43,7 @@ export default function OverviewPage() {
   const [tasks, setTasks]   = useState<Task[]>([]);
   const [teams, setTeams]   = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
+  const org = useOrg();
 
   const allowed = user?.role === "manager" || user?.role === "admin";
 
@@ -83,15 +85,57 @@ export default function OverviewPage() {
   }
 
   const now = new Date();
+  const todayKey = now.toISOString().slice(0, 10);
+  const weekAgo = new Date(now.getTime() - 7 * 86400000);
+
+  // ── Org-wide KPIs (mirrors the four CloudWatch metrics in the architecture doc) ──
+  const totalTasks = tasks.length;
+  const createdToday = tasks.filter(t => (t.createdAt ?? "").startsWith(todayKey)).length;
+  const closedThisWeek = tasks.filter(t =>
+    normalizeStatus(t.status) === "Done" &&
+    t.updatedAt && new Date(t.updatedAt) >= weekAgo
+  ).length;
+  const overdueAll = tasks.filter(t =>
+    t.deadline && normalizeStatus(t.status) !== "Done" && new Date(t.deadline) < now
+  ).length;
+  const closedTasks = tasks.filter(t => normalizeStatus(t.status) === "Done" && t.createdAt && t.updatedAt);
+  const avgCloseDays = closedTasks.length === 0 ? null :
+    closedTasks.reduce((acc, t) =>
+      acc + (new Date(t.updatedAt as string).getTime() - new Date(t.createdAt as string).getTime()) / 86400000
+    , 0) / closedTasks.length;
 
   return (
     <ProtectedLayout>
       {/* Page header */}
       <div className="mb-6">
+        {org?.name && (
+          <p className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant mb-1">
+            {org.name}
+          </p>
+        )}
         <h1 className="text-2xl font-bold text-on-surface tracking-tight">Overview</h1>
         <p className="text-sm text-on-surface-variant mt-1">
           Per-team status across the company
         </p>
+      </div>
+
+      {/* KPI strip (rubric metrics) */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        {[
+          { label: "Created today",   value: createdToday,                                hint: `${totalTasks} total` },
+          { label: "Closed this week", value: closedThisWeek,                              hint: "Done in last 7d" },
+          { label: "Avg days to close", value: avgCloseDays === null ? "—" : avgCloseDays.toFixed(1), hint: `${closedTasks.length} done` },
+          { label: "Overdue",          value: overdueAll,                                  hint: "Past deadline · not Done", danger: overdueAll > 0 },
+        ].map(kpi => (
+          <div key={kpi.label} className="bg-surface-container rounded-xl border border-outline-variant p-4">
+            <p className="text-[10px] uppercase tracking-wider text-on-surface-variant">{kpi.label}</p>
+            <p className="text-2xl font-bold tabular-nums mt-1.5"
+               style={{ color: kpi.danger ? ERROR_COLOR : "var(--color-on-surface, #e5e2e1)" }}>
+              {kpi.value}
+            </p>
+            <p className="text-[11px] text-on-surface-variant mt-1">{kpi.hint}</p>
+          </div>
+        ))}
       </div>
 
       {teams.length === 0 ? (

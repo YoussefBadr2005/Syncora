@@ -54,7 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading: initializing || loading,
       login,
       logout,
-      isManager: user?.role === "manager",
+      isManager: user?.role === "manager" || user?.role === "admin",
     }}>
       {children}
     </AuthContext.Provider>

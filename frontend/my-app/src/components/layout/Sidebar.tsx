@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
+import { useOrg } from "@/hooks/useOrg";
 import { NAV } from "./nav";
 
 function NavIcon({ name }: { name: string }) {
@@ -53,7 +54,8 @@ function NavIcon({ name }: { name: string }) {
 }
 
 export default function Sidebar() {
-  const { user, isManager, logout } = useAuth();
+  const { user, logout } = useAuth();
+  const org = useOrg();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -64,15 +66,21 @@ export default function Sidebar() {
     router.push("/login");
   };
 
-  const items = NAV.filter((n) => !n.managerOnly || isManager);
+  const canManage = user.role === "manager" || user.role === "admin";
+  const items = NAV.filter((n) => !n.managerOnly || canManage);
 
   return (
-    <aside className="flex flex-col h-screen sticky top-0 w-[220px] flex-shrink-0 bg-surface-container-low border-r border-outline-variant">
+    <aside className="flex flex-col h-dvh sticky top-0 w-[220px] flex-shrink-0 bg-surface-container-low border-r border-outline-variant overflow-y-auto">
       {/* Brand */}
       <div className="px-4 py-5">
         <Link href="/board" className="text-lg font-bold text-on-surface">
           Syncora
         </Link>
+        {org?.name && (
+          <p className="text-xs text-on-surface-variant mt-0.5 truncate" title={org.name}>
+            {org.name}
+          </p>
+        )}
       </div>
 
       {/* Nav */}

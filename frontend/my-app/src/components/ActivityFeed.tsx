@@ -8,6 +8,7 @@ import ErrorMessage from "./ui/ErrorMessage";
 interface ActivityFeedProps {
   taskId?: string;
   limit?: number;
+  refreshKey?: number;
 }
 
 const TYPE_DOT: Record<string, string> = {
@@ -15,10 +16,13 @@ const TYPE_DOT: Record<string, string> = {
   STATUS_CHANGED: "#c6c6c7",
   TASK_ASSIGNED: "#ffffff",
   COMMENT_ADDED: "#8e9192",
+  IMAGE_ATTACHED: "#7aa3d6",
+  IMAGE_REPLACED: "#7aa3d6",
+  IMAGE_REMOVED: "#b05555",
 };
 
-export default function ActivityFeed({ taskId, limit = 20 }: ActivityFeedProps) {
-  const { activity, loading, error } = useActivity(taskId);
+export default function ActivityFeed({ taskId, limit = 20, refreshKey = 0 }: ActivityFeedProps) {
+  const { activity, loading, error } = useActivity(taskId, refreshKey);
 
   if (loading) return <Spinner />;
   if (error) return <ErrorMessage message={error} />;
@@ -67,6 +71,9 @@ function formatActivityType(type: string): string {
     TASK_ASSIGNED: "Task Assigned",
     COMMENT_ADDED: "Comment Added",
     TASK_CREATED: "Task Created",
+    IMAGE_ATTACHED: "Image Attached",
+    IMAGE_REPLACED: "Image Replaced",
+    IMAGE_REMOVED: "Image Removed",
   };
   return map[type] ?? type;
 }
@@ -82,6 +89,12 @@ function formatActivityMessage(log: ActivityLog): string {
       return `Comment: "${p.preview ?? ""}"`;
     case "TASK_CREATED":
       return `Task created: "${p.title}"`;
+    case "IMAGE_ATTACHED":
+      return p.filename ? `Attached "${p.filename}"` : "Attached an image";
+    case "IMAGE_REPLACED":
+      return p.filename ? `Replaced attachment with "${p.filename}"` : "Replaced the attachment";
+    case "IMAGE_REMOVED":
+      return "Removed the attachment";
     default:
       return JSON.stringify(p).substring(0, 100);
   }

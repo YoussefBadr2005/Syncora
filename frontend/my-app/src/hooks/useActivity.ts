@@ -4,7 +4,7 @@ import type { ActivityLog } from "@/types";
 
 export type { ActivityLog };
 
-export function useActivity(taskId?: string) {
+export function useActivity(taskId?: string, refreshKey = 0) {
   const [activity, setActivity] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -16,7 +16,7 @@ export function useActivity(taskId?: string) {
       .then((r) => setActivity(r.data))
       .catch((e) => setError(e.response?.data?.error ?? "Failed to load activity"))
       .finally(() => setLoading(false));
-  }, [taskId]);
+  }, [taskId, refreshKey]);
 
   return { activity, loading, error };
 }

@@ -30,7 +30,10 @@ export type ActivityType =
   | "TASK_CREATED"
   | "STATUS_CHANGED"
   | "TASK_ASSIGNED"
-  | "COMMENT_ADDED";
+  | "COMMENT_ADDED"
+  | "IMAGE_ATTACHED"
+  | "IMAGE_REPLACED"
+  | "IMAGE_REMOVED";
 
 export async function recordActivity(params: {
   taskId: string;

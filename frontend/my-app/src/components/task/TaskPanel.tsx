@@ -164,6 +164,7 @@ function TaskForm({ taskId, onSaved, onCancel }: {
   const [projectId,   setProjectId]   = useState("");
   const [file,        setFile]        = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null);
+  const [existingImageUrl, setExistingImageUrl] = useState<string | null>(null);
   const [dragOver,    setDragOver]    = useState(false);
   const [didPrefill,  setDidPrefill]  = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -197,6 +198,11 @@ function TaskForm({ taskId, onSaved, onCancel }: {
         setProjectId(task.projectId ?? "");
         setAssigneeId(task.assigneeId ?? "");
         setDidPrefill(true);
+        if (task.imageKey && taskId) {
+          fetchTaskImageUrls(taskId).then(({ original, thumbnail }) =>
+            setExistingImageUrl(thumbnail || original)
+          ).catch(() => undefined);
+        }
       }
     }).finally(() => setLoading(false));
   }, [user, isEdit, taskId]);
@@ -347,6 +353,19 @@ function TaskForm({ taskId, onSaved, onCancel }: {
               </svg>
             </button>
           </div>
+        ) : existingImageUrl ? (
+          <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-surface border border-outline-variant">
+            <img src={existingImageUrl} alt="Current attachment"
+                 className="w-12 h-12 rounded-lg object-cover border border-outline-variant flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-on-surface truncate">Current attachment</p>
+              <p className="text-xs text-on-surface-variant mt-0.5">Upload a new file to replace it</p>
+            </div>
+            <button type="button" onClick={() => fileRef.current?.click()}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium border border-outline-variant text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors flex-shrink-0">
+              Replace
+            </button>
+          </div>
         ) : (
           <div
             onDragOver={e => { e.preventDefault(); setDragOver(true); }}
@@ -436,7 +455,10 @@ function TaskView({ taskId, onChanged, onClose, onEdit }: {
   const [uploading,    setUploading]   = useState(false);
   const [uploadError,  setUploadError] = useState("");
   const [dragOver,     setDragOver]    = useState(false);
+  const [historyKey,   setHistoryKey]  = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const bumpHistory = () => setHistoryKey(k => k + 1);
 
   async function handleUpload(f: File) {
     setUploadError("");
@@ -460,6 +482,7 @@ function TaskView({ taskId, onChanged, onClose, onEdit }: {
         setImageUrl(thumbnail || original);
       }
       onChanged();
+      bumpHistory();
     } catch {
       setUploadError("Upload failed. Please try again.");
     } finally { setUploading(false); }
@@ -472,12 +495,13 @@ function TaskView({ taskId, onChanged, onClose, onEdit }: {
       setImageUrl(null);
       setTask(t => t ? { ...t, imageKey: undefined, thumbnailKey: undefined } as Task : t);
       onChanged();
+      bumpHistory();
     } catch { setUploadError("Failed to remove attachment."); }
   }
 
   useEffect(() => {
     if (!user) return;
-    const isManager = user.role === "manager";
+    const isManager = user.role === "manager" || user.role === "admin";
     Promise.all([
       api.get(`/tasks/${taskId}`).then(r => r.data as Task),
       api.get(`/tasks/${taskId}/comments`).then(r => r.data as Comment[]).catch(() => []),
@@ -501,7 +525,7 @@ function TaskView({ taskId, onChanged, onClose, onEdit }: {
     const prev = task.status;
     setTask(t => t ? { ...t, status: newStatus as Task["status"] } : t);
     setStatusSaving(true);
-    try { await api.put(`/tasks/${taskId}`, { status: newStatus }); onChanged(); }
+    try { await api.put(`/tasks/${taskId}`, { status: newStatus }); onChanged(); bumpHistory(); }
     catch { setTask(t => t ? { ...t, status: prev } : t); }
     finally { setStatusSaving(false); }
   };
@@ -514,6 +538,7 @@ function TaskView({ taskId, onChanged, onClose, onEdit }: {
       setComments(prev => [...prev, res.data]);
       setCommentBody("");
       onChanged();
+      bumpHistory();
     } catch { /* ignore */ }
     finally { setSubmitting(false); }
   };
@@ -554,7 +579,7 @@ function TaskView({ taskId, onChanged, onClose, onEdit }: {
   const teamObj       = teams.find(t => t.teamId === task.teamId);
   const assigneeUser  = task.assigneeId ? getUserById(task.assigneeId) : null;
   const isOverdue     = task.deadline && status !== "Done" && new Date(task.deadline) < new Date();
-  const isManager     = user?.role === "manager";
+  const isManager     = user?.role === "manager" || user?.role === "admin";
 
   return (
     <div className="space-y-4">
@@ -807,7 +832,7 @@ function TaskView({ taskId, onChanged, onClose, onEdit }: {
       {/* History */}
       <div className="bg-surface-container rounded-xl border border-outline-variant p-4">
         <p className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant mb-4">History</p>
-        <ActivityFeed taskId={taskId} limit={8} />
+        <ActivityFeed taskId={taskId} limit={8} refreshKey={historyKey} />
       </div>
 
       {/* Manager actions */}

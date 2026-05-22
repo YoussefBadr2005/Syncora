@@ -89,6 +89,7 @@ router.post(
         taskId: task.taskId,
         taskTitle: task.title,
         assigneeId: task.assigneeId,
+        assigneeEmail: (assignee as { email?: string }).email ?? "",
         teamId: task.teamId,
         orgId: task.orgId,
         assignedBy: req.user!.sub,
@@ -256,10 +257,14 @@ router.put(
       })(),
       (async () => {
         if (isManager && body.assigneeId && body.assigneeId !== task.assigneeId) {
+          const { Item: newAssignee } = await ddb.send(
+            new GetCommand({ TableName: config.tables.users, Key: { userId: updated.assigneeId } })
+          );
           await publishTaskAssignment({
             taskId: updated.taskId,
             taskTitle: updated.title,
             assigneeId: updated.assigneeId,
+            assigneeEmail: (newAssignee as { email?: string } | undefined)?.email ?? "",
             teamId: updated.teamId,
             orgId: task.orgId,
             assignedBy: user.sub,

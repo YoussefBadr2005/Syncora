@@ -10,6 +10,7 @@ import { ddb, cognito } from "../aws";
 import { config } from "../config";
 import { requireRole } from "../middleware/auth";
 import { asyncHandler, HttpError } from "../middleware/error";
+import { subscribeUserEmail } from "../services/notifications";
 
 const router = Router();
 
@@ -130,6 +131,10 @@ router.post(
       createdAt: new Date().toISOString(),
     };
     await ddb.send(new PutCommand({ TableName: config.tables.users, Item: item }));
+
+    // Subscribe the new user's email to task-assignment notifications (best-effort;
+    // they must confirm via the email SNS sends before they receive anything).
+    await subscribeUserEmail(email).catch(() => undefined);
 
     res.status(201).json(item);
   })
