@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import ProtectedLayout from "@/components/layout/ProtectedLayout";
@@ -224,7 +224,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
-export default function CreateTaskPage() {
+function CreateTaskPageInner() {
   const { user }       = useAuth();
   const router         = useRouter();
   const searchParams   = useSearchParams();
@@ -523,5 +523,13 @@ export default function CreateTaskPage() {
         </form>
       </div>
     </ProtectedLayout>
+  );
+}
+
+export default function CreateTaskPage() {
+  return (
+    <Suspense fallback={null}>
+      <CreateTaskPageInner />
+    </Suspense>
   );
 }
